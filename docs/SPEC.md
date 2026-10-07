@@ -570,10 +570,9 @@ Changes to the spec above, agreed during milestone reviews. Where this section a
 | --- | --- | --- |
 | Perfect bunny hop | Hop within `Hop.ChainWindow` of landing or of starting a slide | Keeps landing speed plus `Tech.PerfectHopBonus` |
 | Dive-slide | Touch down from Dive or Swoop at under `Tech.SlideMaxAngle` with at least `Tech.SlideMinSpeed` | New `Slide` state: slide on the ground with friction; hop out keeps speed; off a ledge → Glide |
-| Tap boost | In the air, release a dive within `Tech.TapWindow` | Glide with `+Tech.TapBoost` forward speed, costs `Tech.TapEnergyCost` energy |
 | Swoop skim | Swoop pull-up passes within `Tech.SkimHeight` of the ground | `+Tech.SkimBoost` speed and the arc levels off low instead of climbing |
 
-They chain: dive → skim → slide → hop → tap → dive. **Open for milestone 3:** §4.8 says any dive into the ground is an Impact. Proposed: steep dives smash, shallow ones do a small smash and then slide.
+They chain: dive → skim → slide → hop → dive. (The milestone 1 tap boost was replaced by the punch dash in milestone 2.) **Open for milestone 3:** §4.8 says any dive into the ground is an Impact. Proposed: steep dives smash, shallow ones do a small smash and then slide.
 
 **World readability.** The disc has a two-scale grid (16 and 128 studs) and the player has a client-only blob shadow straight below (`GroundShadow`) that shrinks and fades with height, so height above the ground is always readable.
 
@@ -581,12 +580,26 @@ They chain: dive → skim → slide → hop → tap → dive. **Open for milesto
 
 **Engine note.** This Studio build no longer places `PlayerModule` in PlayerScripts, so movement input is read directly from the keyboard and gamepad (`Movement/Input.luau`); the Humanoid's default walking still works.
 
-### To fix at the start of milestone 2
+### Milestone 2 (burst and arc)
 
-Notes from the milestone 1 review, to settle and build before the Charging/Burst work:
+**Input map** (agreed at the start of milestone 2; replaces the §3 input table on desktop, and the §8 hints follow it):
 
-- **Remove the tap boost.** Tapping LMB for speed feels wrong. The boost moves to the punch charge (below).
-- **Split dive and punch.** In the air, **Space** dives (today LMB dives; Space does nothing in the air since flapping was removed). **LMB** becomes a punch. This changes the §3 input table and the onboarding hints in §8, so confirm the full input map before building.
-- **Punch charge is the boost.** Holding LMB charges the punch; that charge replaces the tap boost.
-- **Rocket jump.** Punching the ground launches you, and cancelling a punch with a jump is a candidate for another trick. Design these with the punch.
-- Update the controls HUD (`ControlsHud.luau`) and the tricks list in this section to match.
+| Input | On ground | In air |
+| --- | --- | --- |
+| Space tap | Hop (fires on release, within `Hop.TapTime`) | Dive (a tap dives for `Dive.MinHoldTime`) |
+| Space hold | Charge a Burst if the charge is full, else a charged hop | Dive; release to swoop |
+| LMB hold, release | Punch (rocket jump with a surface under the crosshair in reach) | Punch: rocket jump near a surface, else a dash at the crosshair |
+| RMB | Cutter (milestone 4) | Laser (milestone 4) |
+| WASD, mouse | Walk, look | Steer, look |
+
+Space is a tap-or-hold check on the ground, so a standing hop waits for the release (at most `Hop.TapTime`). Inside the chain window after a landing, Space still hops on press. The §3 ground smash is gone; the ground punch replaces it. You can't hop in the air. Mobile keeps its own layout (milestone 7).
+
+**Punch** (`Movement/Punch.luau`). Holding LMB charges for `Punch.ChargeTime` in any state and never locks movement: you can still hop, dive or charge a Burst. While it charges, walk, hop and glide speed take a small cut (`Punch.Charge*Mult`). On release:
+
+- **Rocket jump**: a surface under the crosshair within `Punch.Reach` of the body. The punch reflects off the surface: it cancels the speed you were moving into it, bounces back `Punch.Reflect` of it, and adds `Punch.Impulse`, all scaled by power and by proximity, `(1 − clearance / Reach) ^ ProximityExponent`. Point blank is strongest; released early it mostly just stops you. Standing still it is a weak pop (a full punch is a little under a hop); timed off the end of a hop or a fall it launches. Works off walls too.
+- **Dash**: in the air with no surface in reach, `Punch.DashSpeed × power` toward the crosshair for `Punch.DashEnergyCost × power` glide energy. During a held dive it stays a dive. This replaces the tap boost.
+- Dropped during Charging and Burst.
+
+**Tricks added**: rocket jump, and jump punch (hop or dive while a punch charges, release near the ground).
+
+**Burst and Hang.** `Hang.Time` is one value (the 2–6 s spread belonged to the cut Hang stat). Burst drift after `Burst.NoSteerTime` is a small fixed speed (`Burst.DriftSpeed`). Burst is exempt from the air-gain ceiling, and Hang starts the fall's ceiling at the apex. Power and a full charge are set from the F2 panel until the economy exists.

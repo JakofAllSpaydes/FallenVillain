@@ -9,7 +9,7 @@ local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
 local MathUtil = require(script.Parent.Parent.MathUtil)
 
-local Swoop = { Air = true }
+local Swoop = { Air = true, Punch = "Air" }
 
 local pullingUp = false
 local pitch = 0 -- degrees, current flight-path angle while pulling up
@@ -38,7 +38,7 @@ end
 
 function Swoop.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 	local S = Tuning.Swoop
-	if ctx.Input.PrimaryPressed then
+	if ctx.Input.JumpPressed then
 		return "Dive", nil
 	end
 

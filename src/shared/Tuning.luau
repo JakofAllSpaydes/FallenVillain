@@ -24,7 +24,8 @@ local Tuning = {
 	Hop = {
 		Height = 60,
 		ChargedHeight = 120,
-		ChargeTime = 0.4,
+		TapTime = 0.15, -- on the ground, Space released sooner is a hop; held longer charges (a Burst if full)
+		ChargeTime = 0.4, -- extra hold past TapTime to reach ChargedHeight when the Burst charge isn't full
 		ApexFloatTime = 0.35,
 		ChainWindow = 0.2,
 		ChainBonus = 0.1,
@@ -35,7 +36,25 @@ local Tuning = {
 	},
 
 	Charging = {
-		CancelThreshold = 0.4,
+		CancelThreshold = 0.4, -- total Space hold; releasing sooner cancels the Burst
+	},
+
+	-- LMB punch. Holding charges it without locking movement (at a small speed cost). Releasing with a surface
+	-- under the crosshair within Reach is a rocket jump; otherwise, in the air, a dash toward the crosshair.
+	Punch = {
+		ChargeTime = 0.6,
+		MinPower = 0.3, -- power of a tap punch
+		ChargeWalkMult = 0.8,
+		ChargeHopMult = 0.85,
+		ChargeGlideMult = 0.9,
+		Reach = 30, -- clearance in studs between the body and the surface under the crosshair
+		ProximityExponent = 2, -- higher rewards releasing closer to the surface
+		Impulse = 150, -- launch speed of a full punch at point blank with no momentum
+		Reflect = 0.5, -- extra share of the speed you were moving into the surface that bounces back
+		MaxLaunchSpeed = 320,
+		DashSpeed = 70,
+		DashEnergyCost = 10,
+		Cooldown = 0.25,
 	},
 
 	Burst = {
@@ -44,14 +63,15 @@ local Tuning = {
 		MaxVelocity = 1400,
 		IgnitionTime = 0.3,
 		NoSteerTime = 0.5,
-		DriftFraction = 0.15,
+		DriftSpeed = 15,
+		DriftAccel = 30,
 		HangEntryVerticalSpeed = 5,
 	},
 
 	Hang = {
-		MinTime = 2,
-		MaxTime = 6,
+		Time = 4, -- spec range is 2–6 s; the Hang stat that spreads it is cut from MVP
 		DriftSpeed = 8,
+		DriftAccel = 12,
 	},
 
 	Glide = {
@@ -93,6 +113,7 @@ local Tuning = {
 		SteerRate = 35,
 		TerminalRampTime = 2,
 		MaxPitch = -10,
+		MinHoldTime = 0.2, -- a tapped dive lasts this long
 	},
 
 	Swoop = {
@@ -115,8 +136,6 @@ local Tuning = {
 		RadiusBase = 6,
 		RadiusSpeedDivisor = 8,
 		DamagePerSpeed = 2,
-		GroundSmashHopHeight = 10,
-		GroundSmashRadius = 14,
 		WaveSpeed = 200,
 	},
 
@@ -201,9 +220,6 @@ local Tuning = {
 		SlideYawRate = 60,
 		SlideGroundProbe = 4,
 		SlideLean = 35, -- degrees the body leans back while sliding
-		TapWindow = 0.2, -- a dive released this quickly is a tap
-		TapBoost = 25,
-		TapEnergyCost = 5,
 		SkimHeight = 25, -- a swoop arc passing this close to the ground skims
 		SkimBoost = 0.2,
 		SkimPitch = 3,
@@ -231,6 +247,9 @@ local Tuning = {
 		StickPitchRate = 140,
 		Distance = {
 			Grounded = 16,
+			Charging = 14,
+			Burst = 12,
+			Hang = 20,
 			Hop = 16,
 			Landing = 16,
 			Glide = 18,
@@ -242,6 +261,7 @@ local Tuning = {
 
 	Dev = {
 		DropAltitudes = { 300, 1000, 3000 },
+		PowerPresets = { 1, 6, 11, 18, 25 },
 		ShowControlsHud = true, -- tester cheat sheet in every build; turn off when milestone 7 hints land
 	},
 }

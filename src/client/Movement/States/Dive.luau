@@ -1,13 +1,13 @@
 --!strict
 -- Aimed dive (spec §3): snap toward the aim point, thrust plus ramping gravity, steer within a cone that widens
--- the longer the hold. Release converts to Swoop above the entry speed, else Glide.
+-- the longer Space is held. Release converts to Swoop above the entry speed, else Glide.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
 local MathUtil = require(script.Parent.Parent.MathUtil)
 
-local Dive = { Air = true }
+local Dive = { Air = true, Punch = "Air" }
 
 local forced = false
 local straightDown = false
@@ -43,10 +43,8 @@ end
 
 function Dive.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 	local T = Tuning.Dive
-	if not forced and not ctx.Input.PrimaryHeld then
-		if holdTime <= Tuning.Tech.TapWindow then
-			return "Glide", { TapBoost = true }
-		end
+	-- A tap still dives for MinHoldTime so it always does something.
+	if not forced and not ctx.Input.JumpHeld and holdTime >= T.MinHoldTime then
 		local S = Tuning.Swoop
 		if speed >= S.MinEntrySpeed and ctx.Now >= ctx.SwoopReadyAt and ctx.GlideEnergy >= S.EnergyCost then
 			return "Swoop", nil
@@ -59,8 +57,8 @@ function Dive.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 	local target = MathUtil.rotateTowards(entryDirection, aimDirection(ctx), cone)
 	direction = MathUtil.rotateTowards(direction, target, math.rad(T.SteerRate) * dt)
 
-	-- Read back so walls and collisions take speed away.
-	speed = math.clamp(ctx.Velocity:Dot(direction), 0, speed)
+	-- Read back so walls and collisions take speed away and a punch dash adds it.
+	speed = math.max(0, ctx.Velocity:Dot(direction))
 	local gravity = ramp(Tuning.Gravity.DiveStart, Tuning.Gravity.DiveEnd, Tuning.Gravity.DiveRampTime)
 	speed += (T.Thrust - gravity * direction.Y) * dt
 	speed = math.clamp(speed, 0, ramp(T.TerminalStart, T.TerminalEnd, T.TerminalRampTime))

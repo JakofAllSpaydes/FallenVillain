@@ -18,6 +18,14 @@ function MathUtil.moveToward(current: number, target: number, maxDelta: number):
 	return math.max(current - maxDelta, target)
 end
 
+function MathUtil.moveTowardVector(current: Vector3, target: Vector3, maxDelta: number): Vector3
+	local delta = target - current
+	if delta.Magnitude <= maxDelta then
+		return target
+	end
+	return current + delta.Unit * maxDelta
+end
+
 -- Exponential approach that is frame-rate independent: rate is 1/seconds.
 function MathUtil.approach(current: number, target: number, rate: number, dt: number): number
 	return target + (current - target) * math.exp(-rate * dt)

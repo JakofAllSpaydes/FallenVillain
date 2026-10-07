@@ -26,8 +26,11 @@ local SECTIONS: { Section } = {
 			{ Keys = { "W", "A", "S", "D" }, Label = "Move" },
 			{ Keys = { "MOUSE" }, Label = "Look" },
 			{ Keys = { "SPACE" }, Label = "Hop" },
-			{ Keys = { "HOLD", "LMB" }, Label = "Dive" },
+			{ Keys = { "HOLD", "SPACE" }, Label = "Burst" },
+			{ Keys = { "AIR", "SPACE" }, Label = "Dive" },
 			{ Keys = { "LET GO" }, Label = "Swoop" },
+			{ Keys = { "HOLD", "LMB" }, Label = "Punch" },
+			{ Keys = { "AIR", "LMB" }, Label = "Dash" },
 		},
 	},
 	{
@@ -35,14 +38,25 @@ local SECTIONS: { Section } = {
 		Rows = {
 			{ Keys = { "LAND", "SPACE" }, Label = "Bunny hop" },
 			{ Keys = { "DIVE", "FLAT" }, Label = "Slide" },
-			{ Keys = { "TAP", "LMB" }, Label = "Boost" },
+			{ Keys = { "LMB", "AT GROUND" }, Label = "Rocket jump" },
+			{ Keys = { "SPACE", "LMB" }, Label = "Jump punch" },
 			{ Keys = { "LET GO", "LOW" }, Label = "Skim" },
 		},
 	},
 }
 
 -- Chips that describe an action or timing rather than a physical key get the accent style.
-local ACTION_CHIPS = { HOLD = true, TAP = true, ["LET GO"] = true, LAND = true, DIVE = true, FLAT = true, LOW = true }
+local ACTION_CHIPS = {
+	HOLD = true,
+	TAP = true,
+	AIR = true,
+	["AT GROUND"] = true,
+	["LET GO"] = true,
+	LAND = true,
+	DIVE = true,
+	FLAT = true,
+	LOW = true,
+}
 
 -- Look and layout of a test tool; not gameplay tuning. Sizes are at 1080p and scale with the screen.
 local FONT = Enum.Font.FredokaOne

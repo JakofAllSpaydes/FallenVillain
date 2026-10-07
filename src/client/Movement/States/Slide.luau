@@ -8,7 +8,7 @@ local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
 local MathUtil = require(script.Parent.Parent.MathUtil)
 
-local Slide = { Air = true, SkipTouchdown = true }
+local Slide = { Air = true, SkipTouchdown = true, Punch = "Ground" }
 
 local speed = 0
 
@@ -27,9 +27,6 @@ function Slide.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 	local T = Tuning.Tech
 	if ctx.Input.JumpPressed then
 		return "Hop", nil
-	end
-	if ctx.Input.PrimaryPressed then
-		return "Hop", { Smash = true }
 	end
 
 	local probe = -Vector3.yAxis * (ctx.StandHeight + T.SlideGroundProbe)

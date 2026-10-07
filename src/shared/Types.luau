@@ -55,11 +55,16 @@ export type Ctx = {
 	LandVelocity: Vector3, -- horizontal velocity at the last touchdown; chain hops keep it
 	SwoopReadyAt: number,
 	FallPeak: number, -- highest altitude this fall; caps air gain
+	Power: number, -- upgrade level 1–25; sets Burst velocity
+	PunchHold: number?, -- seconds LMB has been held, nil when not charging a punch
+	PunchReadyAt: number,
+	TimeScale: number, -- hitstop and slow-mo multiplier on dt this frame
 }
 
 export type StateModule = {
 	Air: boolean,
 	SkipTouchdown: boolean?, -- controller-driven on the ground (Slide): no touchdown check
+	Punch: ("Ground" | "Air")?, -- what an LMB release does here; nil = the punch is dropped
 	enter: (ctx: Ctx, payload: any) -> (),
 	update: (ctx: Ctx, dt: number) -> (MovementState?, any),
 	exit: ((ctx: Ctx) -> ())?,

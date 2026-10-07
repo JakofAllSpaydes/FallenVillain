@@ -6,22 +6,15 @@ local Shared = game:GetService("ReplicatedStorage").Shared
 local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
 local MathUtil = require(script.Parent.Parent.MathUtil)
+local Punch = require(script.Parent.Parent.Punch)
 
-local Glide = { Air = true }
+local Glide = { Air = true, Punch = "Air" }
 
 local pitch = 0
 
-function Glide.enter(ctx: Types.Ctx, payload: any)
+function Glide.enter(ctx: Types.Ctx, _payload: any)
 	pitch = 0
 	ctx.Heading = MathUtil.exitHeading(ctx)
-	if payload ~= nil and payload.TapBoost then
-		-- Dive-tap boost: a quick dive tap trades a little height and energy for forward speed.
-		local T = Tuning.Tech
-		local forward = math.max(0, MathUtil.flat(ctx.Velocity):Dot(ctx.Heading))
-		forward = math.min(forward + T.TapBoost, math.max(forward, T.MaxCarrySpeed))
-		ctx.Velocity = ctx.Heading * forward + Vector3.yAxis * ctx.Velocity.Y
-		ctx.GlideEnergy = math.max(0, ctx.GlideEnergy - T.TapEnergyCost)
-	end
 end
 
 function Glide.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
@@ -33,7 +26,7 @@ function Glide.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 		ctx.GlideEnergy = 0
 		return "Dive", { Forced = true }
 	end
-	if ctx.Input.PrimaryHeld then
+	if ctx.Input.JumpPressed then
 		return "Dive", nil
 	end
 
@@ -48,7 +41,9 @@ function Glide.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 	ctx.Bank = MathUtil.approach(ctx.Bank, T.BankMax * steer, T.BankResponse, dt)
 
 	local pitchUp = math.max(pitch, 0) / T.PitchMax
-	local targetSpeed = T.ForwardSpeed * (1 + (T.PitchUpSpeedFactor - 1) * pitchUp)
+	local targetSpeed = T.ForwardSpeed
+		* (1 + (T.PitchUpSpeedFactor - 1) * pitchUp)
+		* Punch.slow(ctx, Tuning.Punch.ChargeGlideMult)
 	local speed = math.max(0, MathUtil.flat(ctx.Velocity):Dot(ctx.Heading))
 	-- Speed above ForwardSpeed (from boosts, swoops and chains) bleeds slowly unless the player pitches up to brake.
 	local rate = if speed < targetSpeed

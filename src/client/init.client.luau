@@ -25,6 +25,18 @@ for _, altitude in Tuning.Dev.DropAltitudes do
 		end,
 	})
 end
+table.insert(actions, {
+	Label = "Full charge",
+	Run = Controller.fillCharge,
+})
+for _, power in Tuning.Dev.PowerPresets do
+	table.insert(actions, {
+		Label = `Power {power}`,
+		Run = function()
+			Controller.setPower(power)
+		end,
+	})
+end
 DevPanel.start({
 	Actions = actions,
 	OnToggle = function(open)

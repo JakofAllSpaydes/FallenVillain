@@ -1,41 +1,36 @@
 --!strict
--- Hop (spec §3, §4.9): instant takeoff, holding space raises the apex up to the charged height,
--- then a short low-gravity float before handing off to Glide. Ground smash is a tiny hop into a forced dive.
+-- Hop (spec §3, §4.9): fires when Grounded's tap-or-hold check resolves (or instantly on a chain hop), rises to
+-- its height, then a short low-gravity float before handing off to Glide. Space in the air dives.
+-- A punch rocket jump also enters here with the launch velocity already set.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
 local MathUtil = require(script.Parent.Parent.MathUtil)
+local Punch = require(script.Parent.Parent.Punch)
 
-local Hop = { Air = true }
+local Hop = { Air = true, Punch = "Air" }
 
-local smash = false
-local charging = false
 local floating = false
-local holdTime = 0
 local floatTime = 0
-local startY = 0
-local baseHeight = 0
-local chargedHeight = 0
 
-function Hop.enter(ctx: Types.Ctx, payload: any)
+local function launch(ctx: Types.Ctx)
+	ctx.HopChain = 0
+	local vy = math.max(0, ctx.Velocity.Y)
+	ctx.FallPeak = ctx.Altitude + vy * vy / (2 * Tuning.Gravity.Hop)
+end
+
+local function hop(ctx: Types.Ctx, charge: number)
 	local T = Tuning.Hop
-	smash = payload ~= nil and payload.Smash == true
-
-	if not smash and ctx.Now - ctx.LastLandTime <= T.ChainWindow then
+	if ctx.Now - ctx.LastLandTime <= T.ChainWindow then
 		ctx.HopChain = math.min(ctx.HopChain + 1, T.MaxChain)
 	else
 		ctx.HopChain = 0
 	end
 	local chainMult = 1 + T.ChainBonus * ctx.HopChain
-
-	baseHeight = if smash then Tuning.Impact.GroundSmashHopHeight else T.Height * chainMult
-	chargedHeight = T.ChargedHeight * chainMult
-	charging = not smash and ctx.Input.JumpHeld
-	floating = false
-	holdTime = 0
-	floatTime = 0
-	startY = ctx.Root.Position.Y
+	local height = (T.Height + (T.ChargedHeight - T.Height) * charge)
+		* chainMult
+		* Punch.slow(ctx, Tuning.Punch.ChargeHopMult)
 
 	-- Perfect bunny hop: a chain hop keeps the speed you landed with (or are sliding with) plus a bonus,
 	-- so a good rhythm builds speed. Capped by Tech.MaxCarrySpeed.
@@ -47,37 +42,34 @@ function Hop.enter(ctx: Types.Ctx, payload: any)
 			horizontal = carried.Unit * math.max(speed, horizontal.Magnitude)
 		end
 	end
-	local vy = math.sqrt(2 * Tuning.Gravity.Hop * baseHeight)
-	ctx.Velocity = horizontal + Vector3.yAxis * vy
-	ctx.GlideEnergy = Tuning.GlideEnergy.Max
-	ctx.FallPeak = ctx.Altitude + baseHeight
+	ctx.Velocity = horizontal + Vector3.yAxis * math.sqrt(2 * Tuning.Gravity.Hop * height)
+	ctx.FallPeak = ctx.Altitude + height
 	ctx.Charge = math.min(1, ctx.Charge + T.BurstChargeGain)
+end
+
+function Hop.enter(ctx: Types.Ctx, payload: any)
+	if payload ~= nil and payload.Launch then
+		launch(ctx)
+	else
+		hop(ctx, if payload ~= nil and payload.Charge then payload.Charge else 0)
+	end
+	floating = false
+	floatTime = 0
+	ctx.GlideEnergy = Tuning.GlideEnergy.Max
 	ctx.BodyDirection = nil
 	ctx.Bank = 0
 end
 
 function Hop.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 	local T = Tuning.Hop
-	if ctx.Input.PrimaryPressed and not smash then
+	if ctx.Input.JumpPressed then
 		return "Dive", nil
 	end
 
 	local vy = ctx.Velocity.Y
 	if not floating then
-		if charging and ctx.Input.JumpHeld and holdTime < T.ChargeTime then
-			holdTime = math.min(holdTime + dt, T.ChargeTime)
-			local height = baseHeight + (chargedHeight - baseHeight) * (holdTime / T.ChargeTime)
-			local remaining = math.max(0, startY + height - ctx.Root.Position.Y)
-			vy = math.max(vy, math.sqrt(2 * Tuning.Gravity.Hop * remaining))
-			ctx.FallPeak = math.max(ctx.FallPeak, ctx.Altitude + remaining)
-		else
-			charging = false
-		end
 		vy -= Tuning.Gravity.Hop * dt
 		if vy <= 0 then
-			if smash then
-				return "Dive", { Forced = true, StraightDown = true }
-			end
 			floating = true
 		end
 	else

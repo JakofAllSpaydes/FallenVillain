@@ -15,9 +15,14 @@ local Types = require(Shared.Types)
 local Aim = require(script.Parent.Aim)
 local Input = require(script.Parent.Input)
 local MathUtil = require(script.Parent.MathUtil)
+local Punch = require(script.Parent.Punch)
+local TimeScale = require(script.Parent.Parent.Feel.TimeScale)
 
 local States: { [Types.MovementState]: Types.StateModule } = {
 	Grounded = require(script.Parent.States.Grounded),
+	Charging = require(script.Parent.States.Charging),
+	Burst = require(script.Parent.States.Burst),
+	Hang = require(script.Parent.States.Hang),
 	Hop = require(script.Parent.States.Hop),
 	Glide = require(script.Parent.States.Glide),
 	Dive = require(script.Parent.States.Dive),
@@ -33,6 +38,8 @@ Controller.StateChanged = Signal.new() :: Signal.Signal<Types.MovementState, Typ
 Controller.ctx = nil :: Types.Ctx?
 
 local persistentCharge = 1
+local persistentPower = 1
+local appliedScale = 1 -- time scale the last velocity handed to physics was multiplied by
 
 local function uprightCFrame(position: Vector3, heading: Vector3): CFrame
 	return CFrame.lookAt(position, position + heading)
@@ -84,7 +91,8 @@ local function transition(ctx: Types.Ctx, nextState: Types.MovementState, payloa
 	ctx.Player:SetAttribute("MovementState", nextState) -- local-only; for inspecting in Studio
 	new.enter(ctx, payload)
 	if new.Air then
-		ctx.Root.AssemblyLinearVelocity = ctx.Velocity
+		ctx.Root.AssemblyLinearVelocity = ctx.Velocity * ctx.TimeScale
+		appliedScale = ctx.TimeScale
 	end
 	Controller.StateChanged:Fire(from, nextState, payload)
 end
@@ -114,7 +122,7 @@ end
 local function applyLimits(ctx: Types.Ctx)
 	local v = ctx.Velocity
 	local ceiling = ctx.FallPeak * (1 + Tuning.Swoop.MaxAirGainFraction)
-	if ctx.State ~= "Hop" and v.Y > 0 then
+	if ctx.State ~= "Hop" and ctx.State ~= "Burst" and v.Y > 0 then
 		-- Cap climb speed to what would just coast to the ceiling, so the arc rounds off instead of snapping flat.
 		local room = math.max(0, ceiling - ctx.Altitude)
 		local maxClimb = math.sqrt(2 * Tuning.Physics.CeilingDecel * room)
@@ -172,14 +180,22 @@ local function step(dt: number)
 	if not ctx or not ctx.Root.Parent then
 		return
 	end
-	dt = math.min(dt, Tuning.Physics.MaxDt)
+	-- Hitstop scales dt and the velocity handed to physics; ctx.Velocity stays the unscaled velocity.
+	local scale = TimeScale.get()
+	ctx.TimeScale = scale
+	dt = math.min(dt, Tuning.Physics.MaxDt) * scale
 
 	ctx.Now = os.clock()
 	ctx.Input = Input.snapshot()
 	Aim.update(ctx)
-	ctx.Velocity = ctx.Root.AssemblyLinearVelocity
+	if not States[ctx.State].Air then
+		ctx.Velocity = ctx.Root.AssemblyLinearVelocity
+	elseif appliedScale > 1e-3 then
+		ctx.Velocity = ctx.Root.AssemblyLinearVelocity / appliedScale
+	end
 	ctx.Altitude = ctx.Root.Position.Y - Planet.SurfaceY
 	ctx.StateTime += dt
+	ctx.Charge = math.min(1, ctx.Charge + Tuning.Charge.IdlePerSecond * dt)
 
 	if ctx.Altitude < -Tuning.World.FallOffDepth then
 		respawnAtAltar(ctx)
@@ -187,6 +203,11 @@ local function step(dt: number)
 	end
 
 	local state = States[ctx.State]
+	local punchState, punchPayload = Punch.update(ctx, state.Punch, dt)
+	if punchState then
+		transition(ctx, punchState, punchPayload)
+		return
+	end
 	local nextState, payload = state.update(ctx, dt)
 	if nextState then
 		transition(ctx, nextState, payload)
@@ -206,7 +227,8 @@ local function step(dt: number)
 		transition(ctx, if canSlide(ctx, landing.Speed) then "Slide" else "Landing", landing)
 		return
 	end
-	ctx.Root.AssemblyLinearVelocity = ctx.Velocity
+	ctx.Root.AssemblyLinearVelocity = ctx.Velocity * scale
+	appliedScale = scale
 	ctx.Align.CFrame = bodyOrientation(ctx)
 end
 
@@ -276,12 +298,17 @@ local function attach(character: Model)
 		LandVelocity = Vector3.zero,
 		SwoopReadyAt = 0,
 		FallPeak = 0,
+		Power = persistentPower,
+		PunchHold = nil,
+		PunchReadyAt = 0,
+		TimeScale = 1,
 	}
 	States.Grounded.enter(ctx, nil)
 	Controller.ctx = ctx
 
 	humanoid.Died:Connect(function()
 		persistentCharge = ctx.Charge
+		persistentPower = ctx.Power
 		if Controller.ctx == ctx then
 			Controller.ctx = nil
 		end
@@ -301,6 +328,21 @@ function Controller.drop(altitude: number)
 	ctx.FallPeak = altitude
 	ctx.GlideEnergy = Tuning.GlideEnergy.Max
 	transition(ctx, "Glide", nil)
+end
+
+-- Dev panel hooks: set the Power level and refill the Burst charge.
+function Controller.setPower(power: number)
+	persistentPower = power
+	if Controller.ctx then
+		Controller.ctx.Power = power
+	end
+end
+
+function Controller.fillCharge()
+	persistentCharge = 1
+	if Controller.ctx then
+		Controller.ctx.Charge = 1
+	end
 end
 
 function Controller.start()
