@@ -50,6 +50,7 @@ export type Ctx = {
 
 	GlideEnergy: number,
 	BurstCharge: number, -- 0–1 strength of the last Burst for effects (height / Burst.FeelFullHeight)
+	BurstHeld: number, -- seconds Space was held for the last Burst
 	BurstAscentTime: number, -- seconds from ignition to apex of the last Burst
 	HopChain: number,
 	LastLandTime: number,

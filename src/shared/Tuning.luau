@@ -26,7 +26,9 @@ local Tuning = {
 		TapTime = 0.15, -- on the ground, Space released sooner is a hop; held longer always charges a Burst
 		ApexFloatTime = 0.35,
 		ChainWindow = 0.2,
-		ChainBonus = 0.1,
+		ChainBonus = 0.35, -- extra height per chained hop
+		ChainForwardBoost = 15, -- forward speed each chained hop adds
+		GlideClearance = 25, -- a hop only opens into a glide with this much air below its apex; lower, it falls
 		MaxChain = 3,
 		AirControlSpeed = 30,
 		AirControlAccel = 90,
@@ -40,8 +42,9 @@ local Tuning = {
 		ChargeWalkMult = 0.8,
 		ChargeHopMult = 0.85,
 		ChargeGlideMult = 0.9,
-		Reach = 15, -- clearance in studs between the body and the surface under the crosshair
-		ProximityExponent = 2, -- higher rewards releasing closer to the surface
+		Reach = 60, -- clearance in studs within which a surface under the crosshair bounces you instead of a dash
+		ProximityExponent = 4, -- higher makes the point-blank sweet spot sharper
+		MinProximity = 0.2, -- a punch at the edge of Reach still bounces this much
 		Impulse = 320, -- launch speed of a full punch at point blank with no momentum
 		Reflect = 1, -- extra share of the speed you were moving into the surface that bounces back
 		GroundedMult = 0.6, -- rocket strength when punching from the ground instead of timing it from the air
@@ -272,7 +275,7 @@ local Tuning = {
 	Feel = {
 		Grounded = { { loop = "Wind", to = 0.15, dur = 1 } },
 		Landing = { { loop = "Wind", to = 0.15, dur = 0.6 } },
-		Hop = { { loop = "Wind", to = 0.25, dur = 0.3 } },
+		Hop = { { sound = "Hop" }, { loop = "Wind", to = 0.25, dur = 0.3 } },
 		Glide = { { loop = "Wind", to = 0.4, dur = 0.5 } },
 		Dive = { { loop = "Wind", to = 0.85, dur = 0.3 } },
 		Swoop = { { loop = "Wind", to = 0.6, dur = 0.3 } },
@@ -320,7 +323,8 @@ local Tuning = {
 			{ bus = "Ambient", to = 0, dur = 0.3, delay = 0.12 },
 			{ bus = "Wind", to = 0, dur = 0.05, delay = 0.12 },
 			{ bus = "Music", to = 0, dur = 0.3, delay = 0.12 },
-			{ sound = "SubHit" },
+			{ sound = "SubHit", minHeld = 5 },
+			{ sound = "BurstHop", maxHeld = 5 },
 			{ post = "Flash", kick = 0.9, dur = 0.25, byCharge = true },
 			{ spawn = "Shockwave", radius = 60, alpha = 0.8, dur = 0.6, byCharge = true },
 			{ spawn = "Debris", count = 24, speedMin = 40, speedMax = 80, upBias = 0.5, life = 2, byCharge = true },
@@ -340,7 +344,7 @@ local Tuning = {
 			{ cam = "fovOffset", to = 35, dur = 0.15, delay = 0.033, byCharge = true },
 			{ post = "Blur", to = 12, dur = 0.1, delay = 0.033, byCharge = true },
 			{ post = "Blur", to = 0, dur = 0.4, delay = 0.2 },
-			{ sound = "BurstCrack", delay = 0.066 },
+			{ sound = "BurstCrack", delay = 0.066, minHeld = 5 },
 			{ spawn = "Dust", count = 200, delay = 0.066, byCharge = true },
 			{ loop = "Wind", to = 1, dur = 0.05, delay = 0.133 },
 			{ vfx = "Trails", to = 1, dur = 0 },
@@ -418,6 +422,8 @@ local Tuning = {
 		},
 		SubHit = { Id = "rbxasset://sounds/impact_explosion_03.mp3", Bus = "Sfx", Volume = 1, Pitch = 0.4 },
 		BurstCrack = { Id = "rbxasset://sounds/impact_explosion_03.mp3", Bus = "Sfx", Volume = 1, Pitch = 1 },
+		Hop = { Id = "rbxasset://sounds/action_jump.mp3", Bus = "Sfx", Volume = 0.6, Pitch = 1 },
+		BurstHop = { Id = "rbxasset://sounds/action_jump.mp3", Bus = "Sfx", Volume = 0.8, Pitch = 0.8 },
 		Exhale = { Id = "rbxasset://sounds/action_jump.mp3", Bus = "Sfx", Volume = 0.5, Pitch = 0.6 },
 		ApexBell = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Sfx", Volume = 0.6, Pitch = 1.5 },
 		HangChime = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Sfx", Volume = 0.5, Pitch = 2 },

@@ -57,6 +57,7 @@ function Burst.enter(ctx: Types.Ctx, payload: any)
 	local held = if payload ~= nil and payload.Held then payload.Held else 0
 	local height = math.min(Burst.heightForHold(held), Burst.ceiling(ctx.Power))
 	local velocity = velocityFor(height)
+	ctx.BurstHeld = held
 	ctx.BurstCharge = math.clamp(height / B.FeelFullHeight, B.MinFeelCharge, 1)
 	ctx.BurstAscentTime = Burst.predict(velocity)
 	ctx.Velocity = Vector3.yAxis * velocity

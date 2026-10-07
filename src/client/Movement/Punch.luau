@@ -2,9 +2,9 @@
 -- LMB punch (spec §15, milestone 2). Holding charges it in any state without locking movement; while charging,
 -- walk, hop and glide speed take a small cut. Releasing always does something and cancels whatever you were
 -- doing (Charging, Burst, Dive, Glide...):
---   * a surface under the crosshair within Reach: rocket jump. The punch reflects off the surface, so it is
---     strongest point blank and bounces back the speed you were moving into the surface. Released early it
---     mostly stops you. From the ground (no momentum to reflect) it is weaker (GroundedMult).
+--   * a surface under the crosshair within Reach: rocket jump, pushing you away from it along the opposite of
+--     the aim (straight down pops you straight up). Always at least a small bounce; much stronger point blank,
+--     where it also bounces back the speed you were moving into the surface. From the ground (no momentum to reflect) it is weaker (GroundedMult).
 --   * otherwise: a dash toward the crosshair, from a tap's burst up to a big charged lunge. On the ground a
 --     level dash is a slide; one aimed upward leaves the ground.
 -- The controller calls `update` before the state runs; it returns the transition when the punch fires.
@@ -38,7 +38,8 @@ local function rocket(ctx: Types.Ctx, charge: number, grounded: boolean): (Vecto
 	end
 	local strength = (P.MinPower + (1 - P.MinPower) * charge) * (if grounded then P.GroundedMult else 1)
 	local clearance = math.max(0, hit.Distance - ctx.StandHeight)
-	local proximity = (1 - math.clamp(clearance / P.Reach, 0, 1)) ^ P.ProximityExponent
+	local falloff = (1 - math.clamp(clearance / P.Reach, 0, 1)) ^ P.ProximityExponent
+	local proximity = P.MinProximity + (1 - P.MinProximity) * falloff
 	local incoming = math.max(0, ctx.Velocity:Dot(into))
 	local push = proximity * (incoming * (1 + P.Reflect * strength) + P.Impulse * strength)
 	if push < 1e-3 then

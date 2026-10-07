@@ -1,6 +1,7 @@
 --!strict
 -- Hop (spec §3, §4.9): fires when the ground tap-or-hold check (JumpCheck) resolves to a tap, rises to
--- its height, then a short low-gravity float before handing off to Glide. Space in the air dives.
+-- its height, then a short low-gravity float. With Hop.GlideClearance of air below it opens into a Glide;
+-- closer to the ground it just falls back like a jump. Space in the air dives.
 -- A punch rocket jump also enters here with the launch velocity already set.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
@@ -12,6 +13,8 @@ local Punch = require(script.Parent.Parent.Punch)
 local Hop = { Air = true, Punch = "Air" }
 
 local floating = false
+local falling = false -- past the float without room to glide: plain fall until touchdown
+local high = false
 local floatTime = 0
 
 local function launch(ctx: Types.Ctx)
@@ -30,15 +33,19 @@ local function hop(ctx: Types.Ctx, pressedAt: number)
 	local chainMult = 1 + T.ChainBonus * ctx.HopChain
 	local height = T.Height * chainMult * Punch.slow(ctx, Tuning.Punch.ChargeHopMult)
 
-	-- Perfect bunny hop: a chain hop keeps the speed you landed with (or are sliding with) plus a bonus,
-	-- so a good rhythm builds speed. Capped by Tech.MaxCarrySpeed.
+	-- Perfect bunny hop: a chain hop keeps the speed you landed with (or are sliding with) plus a bonus and a
+	-- forward kick, so a good rhythm builds speed. Capped by Tech.MaxCarrySpeed.
 	local horizontal = MathUtil.flat(ctx.Velocity)
 	if ctx.HopChain > 0 then
 		local carried = if ctx.LandVelocity.Magnitude > horizontal.Magnitude then ctx.LandVelocity else horizontal
-		if carried.Magnitude > 1e-3 then
-			local speed = math.min(carried.Magnitude * (1 + Tuning.Tech.PerfectHopBonus), Tuning.Tech.MaxCarrySpeed)
-			horizontal = carried.Unit * math.max(speed, horizontal.Magnitude)
-		end
+		local wish = MathUtil.cameraMove(ctx.Input.Move)
+		local forward = if carried.Magnitude > 1
+			then carried.Unit
+			elseif wish.Magnitude > 1e-3 then wish.Unit
+			else ctx.Heading
+		local speed = carried.Magnitude * (1 + Tuning.Tech.PerfectHopBonus) + T.ChainForwardBoost
+		speed = math.min(speed, math.max(Tuning.Tech.MaxCarrySpeed, horizontal.Magnitude))
+		horizontal = forward * math.max(speed, horizontal.Magnitude)
 	end
 	ctx.Velocity = horizontal + Vector3.yAxis * math.sqrt(2 * Tuning.Gravity.Hop * height)
 	ctx.FallPeak = ctx.Altitude + height
@@ -51,6 +58,8 @@ function Hop.enter(ctx: Types.Ctx, payload: any)
 		hop(ctx, if payload ~= nil and payload.PressedAt then payload.PressedAt else ctx.Now)
 	end
 	floating = false
+	falling = false
+	high = false
 	floatTime = 0
 	ctx.GlideEnergy = Tuning.GlideEnergy.Max
 	ctx.BodyDirection = nil
@@ -63,17 +72,29 @@ function Hop.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 		return "Dive", nil
 	end
 
+	local probe = -Vector3.yAxis * (ctx.StandHeight + T.GlideClearance)
 	local vy = ctx.Velocity.Y
-	if not floating then
+	if falling then
+		vy -= Tuning.Gravity.Hop * dt
+		-- Fell off a ledge: open the wings after all.
+		if not workspace:Raycast(ctx.Root.Position, probe, ctx.RaycastParams) then
+			return "Glide", nil
+		end
+	elseif not floating then
 		vy -= Tuning.Gravity.Hop * dt
 		if vy <= 0 then
 			floating = true
+			high = workspace:Raycast(ctx.Root.Position, probe, ctx.RaycastParams) == nil
 		end
 	else
 		floatTime += dt
 		vy -= Tuning.Gravity.HopApexFloat * dt
 		if floatTime >= T.ApexFloatTime then
-			return "Glide", nil
+			if high then
+				return "Glide", nil
+			end
+			falling = true
+			floating = false
 		end
 	end
 

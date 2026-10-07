@@ -9,6 +9,7 @@
 --   to / from / kick   the value (tween target, start, or one-shot amount)
 --   dur                seconds; durAscent = fraction of this Burst's ascent time instead
 --   delay              seconds; atApex = seconds relative to the predicted apex instead (negative = before)
+-- minHeld / maxHeld: only play when the last Burst's Space hold was at least / under that many seconds.
 -- byCharge = true scales the amounts (to, kick, radius, count, height) by the last Burst charge.
 -- Delayed entries from a state's event are skipped if that state has already ended.
 
@@ -86,7 +87,12 @@ function Juice.fire(event: string, position: Vector3?, whileState: string?)
 		return
 	end
 	local ascent = ascentTime()
+	local ctx = Controller.ctx
+	local held = if ctx then ctx.BurstHeld else 0
 	for _, raw: Entry in entries do
+		if (raw.minHeld and held < raw.minHeld) or (raw.maxHeld and held >= raw.maxHeld) then
+			continue
+		end
 		local entry = scaledByCharge(raw)
 		local duration = entry.dur or (if entry.durAscent then entry.durAscent * ascent else 0)
 		local delay = entry.delay or (if entry.atApex then ascent + entry.atApex else 0)
@@ -94,8 +100,8 @@ function Juice.fire(event: string, position: Vector3?, whileState: string?)
 			run(entry, duration, position)
 		else
 			task.delay(delay, function()
-				local ctx = Controller.ctx
-				if whileState and (not ctx or ctx.State ~= whileState) then
+				local now = Controller.ctx
+				if whileState and (not now or now.State ~= whileState) then
 					return
 				end
 				run(entry, duration, position)
