@@ -603,3 +603,11 @@ Space is a tap-or-hold check on the ground, so a standing hop waits for the rele
 **Tricks added**: rocket jump, and jump punch (hop or dive while a punch charges, release near the ground).
 
 **Burst and Hang.** `Hang.Time` is one value (the 2–6 s spread belonged to the cut Hang stat). Burst drift after `Burst.NoSteerTime` is a small fixed speed (`Burst.DriftSpeed`). Burst is exempt from the air-gain ceiling, and Hang starts the fall's ceiling at the apex. Power and a full charge are set from the F2 panel until the economy exists.
+
+**FeelTable lives in `Tuning.Feel`**, so every effect value is also a live F2 slider. `Feel/Juice.luau` routes entries to `CameraEffects`, `Post`, `Audio`, `Vfx` and the altitude readout; every sink is a set of additive layers (`Feel/Layers.luau`). Events are the state entered, `Exit<State>`, `ChargeCancel`, the punch results and `RemoteBurst`.
+
+**Camera effects and mouse-look.** Shake, tilt and roll are visual only: the aim ray uses the base rig, so the crosshair never wanders. The §4.4 "pitch drops to −8°" is not forced, since the player owns the pitch (see milestone 1); the pull-back is distance and FOV only.
+
+**World.** The shell's center is 1,509 below the disc (not 1,480, which poked through the 8-stud disc). Shell and halo are Ball parts scaled by a SpecialMesh, since parts cap at 2,048 studs. The cloud deck is 8 placeholder sheets at 540–900 that use default streaming, so they stream out from the Edge band.
+
+**Deferred from §4.1–4.4** (placeholders exist for the first three items of each phase): stars (the sky needs a star skybox asset; the Atmosphere only darkens it), speed lines, heartbeat, the hang pad and breath, collectibles, wing animation, other players' Highlight and charge beam (milestone 5), and the RELEASE hint (milestone 7). Sounds are engine built-ins until the audio pass.

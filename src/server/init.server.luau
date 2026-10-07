@@ -5,7 +5,7 @@ local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local _Net = require(ReplicatedStorage.Shared.Net)
+local Presence = require(script.Presence)
 
 -- Characters never collide with each other (spec §7, §10); movement raycasts use this group to skip them too.
 local CHARACTER_GROUP = "Characters"
@@ -36,3 +36,5 @@ Players.PlayerAdded:Connect(onPlayer)
 for _, player in Players:GetPlayers() do
 	onPlayer(player)
 end
+
+Presence.start()

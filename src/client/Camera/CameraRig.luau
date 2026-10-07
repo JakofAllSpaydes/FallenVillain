@@ -1,7 +1,7 @@
 --!strict
 -- Base follow camera (spec §11), mouse-look: the cursor is locked to the screen center and only the player's
 -- mouse or right stick turns the camera. The crosshair is the aim point; states only change follow distance.
--- CameraEffects layers stack on top of this in milestone 2.
+-- CameraEffects layers stack on top; the aim ray uses the base rig without them.
 
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -10,6 +10,8 @@ local UserGameSettings = UserSettings():GetService("UserGameSettings")
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Tuning = require(Shared.Tuning)
 
+local Aim = require(script.Parent.Parent.Movement.Aim)
+local CameraEffects = require(script.Parent.CameraEffects)
 local Controller = require(script.Parent.Parent.Movement.Controller)
 local MathUtil = require(script.Parent.Parent.Movement.MathUtil)
 
@@ -64,15 +66,19 @@ local function update(dt: number)
 	local wantedDistance = C.Distance[ctx.State] or C.Distance.Grounded
 	distance = MathUtil.approach(distance, wantedDistance, C.DistanceResponse, dt)
 
+	local effects = CameraEffects.sample()
 	local rotation = CFrame.fromOrientation(math.rad(pitch), math.rad(yaw), 0)
 	local focus = ctx.Root.Position + Vector3.yAxis * C.FocusHeight + rotation.RightVector * C.ShoulderOffset
-	local offset = -rotation.LookVector * distance
+	local offset = -rotation.LookVector * math.max(0, distance + effects.Distance)
 	local blocked = workspace:Raycast(focus, offset, ctx.RaycastParams)
 	local position = if blocked then blocked.Position - offset.Unit * C.CollisionMargin else focus + offset
 
-	camera.CFrame = CFrame.new(position) * rotation
+	local base = CFrame.new(position) * rotation
+	Aim.view = base
+	local shaken = base * CFrame.new(effects.Offset)
+	camera.CFrame = shaken * effects.Rotation
 	camera.Focus = CFrame.new(focus)
-	camera.FieldOfView = C.BaseFov
+	camera.FieldOfView = math.clamp(C.BaseFov + effects.Fov, 1, 120)
 end
 
 function CameraRig.setMouseLookEnabled(enabled: boolean)

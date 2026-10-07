@@ -3,9 +3,16 @@
 
 local Tuning = require(game:GetService("ReplicatedStorage").Shared.Tuning)
 
+local AltitudeReadout = require(script.UI.AltitudeReadout)
+local AtmosphereDriver = require(script.World.AtmosphereDriver)
+local Audio = require(script.Feel.Audio)
 local CameraRig = require(script.Camera.CameraRig)
 local Controller = require(script.Movement.Controller)
 local GroundShadow = require(script.World.GroundShadow)
+local Juice = require(script.Feel.Juice)
+local Post = require(script.Feel.Post)
+local RemotePlayers = require(script.World.RemotePlayers)
+local Vfx = require(script.Feel.Vfx)
 local ControlsHud = require(script.UI.ControlsHud)
 local DevPanel = require(script.UI.DevPanel)
 local Reticle = require(script.UI.Reticle)
@@ -15,6 +22,13 @@ CameraRig.start()
 Reticle.start()
 GroundShadow.start()
 ControlsHud.start()
+Audio.start()
+Post.start()
+Vfx.start()
+AltitudeReadout.start()
+Juice.start()
+AtmosphereDriver.start()
+RemotePlayers.start()
 
 local actions: { DevPanel.Action } = {}
 for _, altitude in Tuning.Dev.DropAltitudes do

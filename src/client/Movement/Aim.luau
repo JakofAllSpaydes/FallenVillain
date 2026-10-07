@@ -8,8 +8,11 @@ local Types = require(Shared.Types)
 
 local Aim = {}
 
+-- The camera rig writes its base view here each frame (without shake, tilt or roll), so effects never move the aim.
+Aim.view = nil :: CFrame?
+
 function Aim.update(ctx: Types.Ctx)
-	local view = workspace.CurrentCamera.CFrame
+	local view = Aim.view or workspace.CurrentCamera.CFrame
 	local reach = view.LookVector * Tuning.Aim.MaxDistance
 	local hit = workspace:Raycast(view.Position, reach, ctx.RaycastParams)
 	ctx.LookDirection = view.LookVector

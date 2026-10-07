@@ -8,6 +8,6 @@ return {
 	DiscDiameter = 1200,
 	EdgeCurve = 100,
 	ShellRadius = 1500,
-	ShellOffsetY = -1480,
+	ShellOffsetY = -1509, -- shell top sits just under the 8-stud disc (spec said -1480, which pokes through it)
 	HaloRadius = 1560,
 }
