@@ -1,20 +1,23 @@
 --!strict
 -- LMB punch (spec §15, milestone 2). Holding charges it in any state without locking movement; while charging,
--- walk, hop and glide speed take a small cut. On release:
+-- walk, hop and glide speed take a small cut. Releasing always does something and cancels whatever you were
+-- doing (Charging, Burst, Dive, Glide...):
 --   * a surface under the crosshair within Reach: rocket jump. The punch reflects off the surface, so it is
---     strongest point blank and adds back the speed you were moving into the surface. Releasing early just
---     stops you. Standing still it is a weak pop; timed off a hop or a fall it launches.
---   * otherwise, in the air: a dash toward the crosshair that costs glide energy.
--- The controller calls `update` before the state runs; it returns a transition when the punch moves you.
+--     strongest point blank and bounces back the speed you were moving into the surface. Released early it
+--     mostly stops you. From the ground (no momentum to reflect) it is weaker (GroundedMult).
+--   * otherwise: a dash toward the crosshair, from a tap's burst up to a big charged lunge. On the ground a
+--     level dash is a slide; one aimed upward leaves the ground.
+-- The controller calls `update` before the state runs; it returns the transition when the punch fires.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Signal = require(Shared.Signal)
 local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
+local MathUtil = require(script.Parent.MathUtil)
 
 local Punch = {}
 
--- (kind: "Rocket" | "Dash" | "Whiff", power 0–1, position)
+-- (kind: "Rocket" | "Dash", power 0–1, position)
 Punch.Fired = Signal.new() :: Signal.Signal<string, number, Vector3>
 
 -- Speed multiplier while a punch is charging.
@@ -22,12 +25,7 @@ function Punch.slow(ctx: Types.Ctx, mult: number): number
 	return if ctx.PunchHold ~= nil then mult else 1
 end
 
-local function power(hold: number): number
-	local P = Tuning.Punch
-	return P.MinPower + (1 - P.MinPower) * math.clamp(hold / P.ChargeTime, 0, 1)
-end
-
-local function rocket(ctx: Types.Ctx, strength: number): (Vector3?, Vector3?)
+local function rocket(ctx: Types.Ctx, charge: number, grounded: boolean): (Vector3?, Vector3?)
 	local P = Tuning.Punch
 	local toAim = ctx.AimPoint - ctx.Root.Position
 	if toAim.Magnitude < 1e-3 then
@@ -38,10 +36,14 @@ local function rocket(ctx: Types.Ctx, strength: number): (Vector3?, Vector3?)
 	if not hit then
 		return nil, nil
 	end
+	local strength = (P.MinPower + (1 - P.MinPower) * charge) * (if grounded then P.GroundedMult else 1)
 	local clearance = math.max(0, hit.Distance - ctx.StandHeight)
 	local proximity = (1 - math.clamp(clearance / P.Reach, 0, 1)) ^ P.ProximityExponent
 	local incoming = math.max(0, ctx.Velocity:Dot(into))
 	local push = proximity * (incoming * (1 + P.Reflect * strength) + P.Impulse * strength)
+	if push < 1e-3 then
+		return nil, nil
+	end
 	local velocity = ctx.Velocity - into * push
 	local cap = math.max(ctx.Velocity.Magnitude, P.MaxLaunchSpeed)
 	if velocity.Magnitude > cap then
@@ -50,18 +52,17 @@ local function rocket(ctx: Types.Ctx, strength: number): (Vector3?, Vector3?)
 	return velocity, hit.Position
 end
 
-local function dash(ctx: Types.Ctx, strength: number): Vector3?
+local function dash(ctx: Types.Ctx, charge: number): Vector3
 	local P = Tuning.Punch
 	local toAim = ctx.AimPoint - ctx.Root.Position
-	if toAim.Magnitude < 1e-3 or ctx.GlideEnergy <= 0 then
-		return nil
-	end
-	-- Low on energy, the dash is as strong as what's left pays for.
-	local cost = P.DashEnergyCost * strength
-	local paid = math.min(cost, ctx.GlideEnergy)
-	ctx.GlideEnergy -= paid
-	local velocity = ctx.Velocity + toAim.Unit * P.DashSpeed * strength * (paid / cost)
-	local cap = math.max(ctx.Velocity.Magnitude, Tuning.Tech.MaxCarrySpeed)
+	local direction = if toAim.Magnitude > 1e-3 then toAim.Unit else ctx.LookDirection
+	ctx.GlideEnergy = math.max(0, ctx.GlideEnergy - P.DashEnergyCost * charge)
+	-- Keep the speed already going this way, trim the rest, then add the lunge.
+	local along = math.max(0, ctx.Velocity:Dot(direction))
+	local across = ctx.Velocity - direction * ctx.Velocity:Dot(direction)
+	local boost = P.DashTapSpeed + (P.DashFullSpeed - P.DashTapSpeed) * charge
+	local velocity = direction * (along + boost) + across * P.DashKeepSideways
+	local cap = math.max(ctx.Velocity.Magnitude, P.MaxDashSpeed)
 	if velocity.Magnitude > cap then
 		velocity = velocity.Unit * cap
 	end
@@ -79,28 +80,28 @@ function Punch.update(ctx: Types.Ctx, mode: ("Ground" | "Air")?, dt: number): (T
 		return nil
 	end
 	ctx.PunchReadyAt = ctx.Now + Tuning.Punch.Cooldown
-	local strength = power(hold)
+	local charge = math.clamp(hold / Tuning.Punch.ChargeTime, 0, 1)
+	local grounded = mode == "Ground"
 
-	local launch, at = rocket(ctx, strength)
-	if launch and at and launch ~= ctx.Velocity then
+	local launch, at = rocket(ctx, charge, grounded)
+	if launch and at then
 		ctx.Velocity = launch
-		Punch.Fired:Fire("Rocket", strength, at)
+		Punch.Fired:Fire("Rocket", charge, at)
 		return "Hop", { Launch = true }
 	end
-	if mode == "Air" then
-		local velocity = dash(ctx, strength)
-		if velocity then
-			ctx.Velocity = velocity
-			Punch.Fired:Fire("Dash", strength, ctx.Root.Position)
-			-- A dash during a held dive stays in the dive; it just goes faster.
-			if ctx.State == "Dive" and ctx.Input.JumpHeld then
-				return nil
-			end
-			return "Glide", nil
-		end
+
+	local velocity = dash(ctx, charge)
+	ctx.Velocity = velocity
+	Punch.Fired:Fire("Dash", charge, ctx.Root.Position)
+	if not grounded then
+		return "Glide", nil
 	end
-	Punch.Fired:Fire("Whiff", strength, ctx.Root.Position)
-	return nil
+	-- From the ground: a level lunge slides, one aimed upward takes off.
+	if velocity.Unit.Y > Tuning.Punch.GroundLiftThreshold then
+		return "Hop", { Launch = true }
+	end
+	ctx.LandVelocity = MathUtil.flat(velocity)
+	return "Slide", nil
 end
 
 return Punch

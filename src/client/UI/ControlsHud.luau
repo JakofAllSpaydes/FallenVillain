@@ -29,8 +29,8 @@ local SECTIONS: { Section } = {
 			{ Keys = { "HOLD", "SPACE" }, Label = "Burst" },
 			{ Keys = { "AIR", "SPACE" }, Label = "Dive" },
 			{ Keys = { "LET GO" }, Label = "Swoop" },
-			{ Keys = { "HOLD", "LMB" }, Label = "Punch" },
-			{ Keys = { "AIR", "LMB" }, Label = "Dash" },
+			{ Keys = { "LMB" }, Label = "Dash punch" },
+			{ Keys = { "HOLD", "LMB" }, Label = "Big punch" },
 		},
 	},
 	{

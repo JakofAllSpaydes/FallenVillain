@@ -22,7 +22,7 @@ local Tuning = {
 	},
 
 	Hop = {
-		Height = 60,
+		Height = 12, -- a little over a default Roblox jump (7.2)
 		TapTime = 0.15, -- on the ground, Space released sooner is a hop; held longer always charges a Burst
 		ApexFloatTime = 0.35,
 		ChainWindow = 0.2,
@@ -32,24 +32,25 @@ local Tuning = {
 		AirControlAccel = 90,
 	},
 
-	Charging = {
-		CancelThreshold = 0.4, -- total Space hold; releasing sooner cancels the Burst
-	},
-
-	-- LMB punch. Holding charges it without locking movement (at a small speed cost). Releasing with a surface
-	-- under the crosshair within Reach is a rocket jump; otherwise, in the air, a dash toward the crosshair.
+	-- LMB punch. Holding charges it without locking movement (at a small speed cost). Releasing cancels whatever
+	-- you are doing: a surface under the crosshair within Reach is a rocket jump, otherwise a dash at the crosshair.
 	Punch = {
 		ChargeTime = 0.6,
-		MinPower = 0.3, -- power of a tap punch
+		MinPower = 0.5, -- rocket strength of a tap punch
 		ChargeWalkMult = 0.8,
 		ChargeHopMult = 0.85,
 		ChargeGlideMult = 0.9,
-		Reach = 30, -- clearance in studs between the body and the surface under the crosshair
+		Reach = 15, -- clearance in studs between the body and the surface under the crosshair
 		ProximityExponent = 2, -- higher rewards releasing closer to the surface
-		Impulse = 150, -- launch speed of a full punch at point blank with no momentum
-		Reflect = 0.5, -- extra share of the speed you were moving into the surface that bounces back
-		MaxLaunchSpeed = 320,
-		DashSpeed = 70,
+		Impulse = 320, -- launch speed of a full punch at point blank with no momentum
+		Reflect = 1, -- extra share of the speed you were moving into the surface that bounces back
+		GroundedMult = 0.6, -- rocket strength when punching from the ground instead of timing it from the air
+		MaxLaunchSpeed = 520,
+		DashTapSpeed = 80, -- dash added by a tap punch
+		DashFullSpeed = 240, -- dash added by a fully charged punch
+		DashKeepSideways = 0.3, -- share of velocity across the dash direction that survives it
+		MaxDashSpeed = 320,
+		GroundLiftThreshold = 0.3, -- a ground dash aimed above this (sine of the angle) leaves the ground; below, it slides
 		DashEnergyCost = 10,
 		Cooldown = 0.25,
 	},
@@ -58,9 +59,21 @@ local Tuning = {
 		BaseVelocity = 350,
 		VelocityPerPower = 45,
 		MaxVelocity = 1400,
-		ChargeTime = 1.5, -- hold from the press for a full Burst; Feel.Charging ramps match it
-		MinCharge = 0.1, -- share of a full Burst at Charging.CancelThreshold
-		ChargeCurve = 0.5, -- velocity = full × charge ^ ChargeCurve; 0.5 makes height track the charge
+		-- Height reached for a Space hold of N seconds (from the press), interpolated geometrically between points
+		-- so it starts gentle and climbs harder the longer you hold. Power caps it.
+		HoldHeights = {
+			{ 0, 60 },
+			{ 1, 80 },
+			{ 3, 250 },
+			{ 5, 450 },
+			{ 10, 1000 },
+			{ 15, 1400 },
+			{ 25, 3000 },
+			{ 30, 3700 },
+			{ 60, 16000 },
+		},
+		FeelFullHeight = 1500, -- Burst height at which byCharge effects reach full strength
+		MinFeelCharge = 0.15,
 		IgnitionTime = 0.3,
 		NoSteerTime = 0.5,
 		DriftSpeed = 15,
@@ -70,6 +83,7 @@ local Tuning = {
 
 	Hang = {
 		Time = 4, -- spec range is 2–6 s; the Hang stat that spreads it is cut from MVP
+		MinTime = 0.4, -- small Bursts hang for Time scaled by their feel charge, never less than this
 		DriftSpeed = 8,
 		DriftAccel = 12,
 	},
@@ -193,6 +207,8 @@ local Tuning = {
 		AirborneGraceTime = 0.15,
 		AlignResponsiveness = 40,
 		AlignMaxTorque = 1e7,
+		BounceRestitution = 0.7, -- share of the speed into a non-destructible wall that bounces back
+		BounceProbe = 2, -- studs beyond this frame's travel to look for walls
 	},
 
 	World = {
@@ -262,23 +278,25 @@ local Tuning = {
 		Swoop = { { loop = "Wind", to = 0.6, dur = 0.3 } },
 		Slide = { { loop = "Wind", to = 0.5, dur = 0.3 } },
 
-		-- §4.1: the hold narrows everything in. The crack and light are the charge bar.
+		-- §4.1: the hold narrows everything in. The crack and light are the charge bar. Ramps run over the
+		-- first seconds of the hold; the Burst height keeps climbing after they finish.
 		Charging = {
-			{ cam = "fovOffset", to = -8, dur = 1.5 },
-			{ cam = "shake", from = 0.05, to = 0.3, freq = 20, dur = 1.5 },
-			{ cam = "tilt", to = -3, dur = 1.5 },
-			{ post = "Saturation", to = -0.4, dur = 1.5 },
-			{ post = "Contrast", to = 0.15, dur = 1.5 },
-			{ post = "Vignette", to = 0.5, dur = 1.5 },
+			{ cam = "fovOffset", to = -8, dur = 8 },
+			{ cam = "shake", from = 0.05, to = 0.3, freq = 20, dur = 8 },
+			{ cam = "tilt", to = -3, dur = 8 },
+			{ post = "Saturation", to = -0.4, dur = 8 },
+			{ post = "Contrast", to = 0.15, dur = 8 },
+			{ post = "Vignette", to = 0.5, dur = 8 },
 			{ bus = "Ambient", to = 0.4, dur = 0.5 },
 			{ loop = "Wind", to = 0, dur = 1 },
-			{ loop = "ChargeDrone", from = 0, to = 1, dur = 0.3, pitchFrom = 0, pitchTo = 2, pitchDur = 1.5 },
-			{ vfx = "CrackRadius", from = 4, to = 14, dur = 1.5, delay = 0.3 },
-			{ vfx = "ChestLight", to = 8, dur = 1.5 },
-			{ vfx = "ChargeBeam", to = 0.4, dur = 1.5 },
+			{ loop = "ChargeDrone", from = 0, to = 1, dur = 0.3, pitchFrom = 0, pitchTo = 2, pitchDur = 8 },
+			{ vfx = "CrackRadius", from = 4, to = 14, dur = 8, delay = 0.3 },
+			{ vfx = "ChestLight", to = 8, dur = 8 },
+			{ vfx = "ChargeBeam", to = 0.4, dur = 8 },
 		},
-		ChargeCancel = {
-			{ sound = "Exhale" },
+
+		-- Leaving Charging any way (Burst, or a punch cancelling it) clears the charge effects.
+		ExitCharging = {
 			{ cam = "fovOffset", to = 0, dur = 0.3 },
 			{ cam = "shake", to = 0, dur = 0.3 },
 			{ cam = "tilt", to = 0, dur = 0.3 },
@@ -336,6 +354,14 @@ local Tuning = {
 			{ vfx = "Trails", to = 0, dur = 0, atApex = -0.8 },
 		},
 
+		-- Leaving Burst early (a punch) drops the ascent camera; Hang overrides these when it follows.
+		ExitBurst = {
+			{ vfx = "Trails", to = 0, dur = 0 },
+			{ cam = "fovOffset", to = 0, dur = 0.5 },
+			{ cam = "distanceOffset", to = 0, dur = 0.8 },
+			{ cam = "tilt", to = 0, dur = 0.5 },
+		},
+
 		-- §4.4: the slow pull-back, silence, the god-ray, the altitude.
 		Hang = {
 			{ sound = "HangChime" },
@@ -368,6 +394,11 @@ local Tuning = {
 			{ sound = "Dash" },
 			{ cam = "fovOffset", kick = 5, dur = 0.3 },
 		},
+		-- Bouncing off a wall that isn't destructible.
+		Bounce = {
+			{ sound = "Bounce" },
+			{ cam = "shake", kick = 0.4, freq = 30, dur = 0.25 },
+		},
 		-- Another player's burst (spec §7): the column everyone sees.
 		RemoteBurst = {
 			{ spawn = "LightColumn", height = 3000, width = 4, alpha = 0.7, dur = 3 },
@@ -393,10 +424,11 @@ local Tuning = {
 		WingFold = { Id = "rbxasset://sounds/action_get_up.mp3", Bus = "Sfx", Volume = 0.5, Pitch = 0.7 },
 		RocketPop = { Id = "rbxasset://sounds/action_jump_land.mp3", Bus = "Sfx", Volume = 0.5, Pitch = 0.8 },
 		Dash = { Id = "rbxasset://sounds/action_jump.mp3", Bus = "Sfx", Volume = 0.6, Pitch = 1.4 },
+		Bounce = { Id = "rbxasset://sounds/action_jump_land.mp3", Bus = "Sfx", Volume = 0.4, Pitch = 1.2 },
 	},
 
 	Audio = {
-		BusVolume = 1,
+		BusVolume = 0.25,
 		PitchJitter = 0.05,
 		LowPassMidShare = 0.3, -- share of the altitude low-pass applied to mids
 	},

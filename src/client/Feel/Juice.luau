@@ -2,7 +2,7 @@
 -- Runs the FeelTable (spec §12): every effect in the game is a data entry in Tuning.Feel, keyed by event, and
 -- this module routes each entry to its sink. States never call effects; they only change state.
 --
--- Events: the state entered ("Burst"), "Exit<State>" for the state left, "ChargeCancel", punch results
+-- Events: the state entered ("Burst"), "Exit<State>" for the state left, punch results, "Bounce"
 -- ("Rocket", "Dash"), and anything fired with Juice.fire (e.g. "RemoteBurst").
 --
 -- Entry keys: one sink key (cam, post, bus, loop, sound, vfx, spawn, time, ui) plus timing:
@@ -17,7 +17,6 @@ local Tuning = require(game:GetService("ReplicatedStorage").Shared.Tuning)
 local CameraEffects = require(script.Parent.Parent.Camera.CameraEffects)
 local Controller = require(script.Parent.Parent.Movement.Controller)
 local Punch = require(script.Parent.Parent.Movement.Punch)
-local BurstState = require(script.Parent.Parent.Movement.States.Burst)
 local AltitudeReadout = require(script.Parent.Parent.UI.AltitudeReadout)
 local Audio = require(script.Parent.Audio)
 local Post = require(script.Parent.Post)
@@ -30,8 +29,7 @@ type Entry = { [string]: any }
 
 local function ascentTime(): number
 	local ctx = Controller.ctx
-	local time = BurstState.predict(if ctx then ctx.Power else 1, if ctx then ctx.BurstCharge else 1)
-	return time
+	return if ctx then ctx.BurstAscentTime else 0
 end
 
 local SCALED_BY_CHARGE = { "to", "kick", "radius", "count", "height" }
@@ -108,14 +106,14 @@ end
 
 function Juice.start()
 	Controller.StateChanged:Connect(function(from, to, _payload)
-		if from == "Charging" and to == "Grounded" then
-			Juice.fire("ChargeCancel")
-		end
 		Juice.fire(`Exit{from}`)
 		Juice.fire(to, nil, to)
 	end)
 	Punch.Fired:Connect(function(kind, _power, position)
 		Juice.fire(kind, position)
+	end)
+	Controller.Bounced:Connect(function(position)
+		Juice.fire("Bounce", position)
 	end)
 	Juice.fire("Grounded")
 end

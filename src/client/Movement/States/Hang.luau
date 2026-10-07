@@ -1,5 +1,5 @@
 --!strict
--- Hang (spec §3, §4.4): the apex. Near-zero gravity and a slow drift for Hang.Time, then the wings fold into
+-- Hang (spec §3, §4.4): the apex. Near-zero gravity and a slow drift for Hang.Time (shorter after small Bursts), then the wings fold into
 -- Glide. Space dives straight out of it. Hang refills glide energy and starts the fall's air-gain ceiling.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
@@ -21,7 +21,7 @@ function Hang.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 	if ctx.Input.JumpPressed then
 		return "Dive", nil
 	end
-	if ctx.StateTime >= H.Time then
+	if ctx.StateTime >= math.max(H.MinTime, H.Time * ctx.BurstCharge) then
 		return "Glide", nil
 	end
 

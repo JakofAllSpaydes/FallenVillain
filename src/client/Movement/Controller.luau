@@ -7,6 +7,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local Shared = game:GetService("ReplicatedStorage").Shared
+local Destructibles = require(Shared.Destructibles)
 local Planet = require(Shared.Planets.Planet1)
 local Signal = require(Shared.Signal)
 local Tuning = require(Shared.Tuning)
@@ -36,6 +37,8 @@ local Controller = {}
 -- (from, to, payload)
 Controller.StateChanged = Signal.new() :: Signal.Signal<Types.MovementState, Types.MovementState, any>
 Controller.ctx = nil :: Types.Ctx?
+-- (position) whenever the bounce rule throws the player off a wall
+Controller.Bounced = Signal.new() :: Signal.Signal<Vector3>
 
 local persistentPower = 1
 local appliedScale = 1 -- time scale the last velocity handed to physics was multiplied by
@@ -117,8 +120,8 @@ local function respawnAtAltar(ctx: Types.Ctx)
 	transition(ctx, "Grounded", nil)
 end
 
--- Air-gain ceiling (spec §3: total air gain per fall capped) and the invisible wall past the disc edge.
-local function applyLimits(ctx: Types.Ctx)
+-- Air-gain ceiling (spec §3: total air gain per fall capped).
+local function applyCeiling(ctx: Types.Ctx)
 	local v = ctx.Velocity
 	local ceiling = ctx.FallPeak * (1 + Tuning.Swoop.MaxAirGainFraction)
 	if ctx.State ~= "Hop" and ctx.State ~= "Burst" and v.Y > 0 then
@@ -129,21 +132,50 @@ local function applyLimits(ctx: Types.Ctx)
 			v = MathUtil.flat(v) + Vector3.yAxis * maxClimb
 		end
 	end
+	ctx.Velocity = v
+end
 
-	local flatPos = MathUtil.flat(ctx.Root.Position)
+-- Reflects the velocity off a surface with this normal if moving into it. Returns whether it bounced.
+local function reflect(ctx: Types.Ctx, normal: Vector3): boolean
+	local into = ctx.Velocity:Dot(normal)
+	if into >= 0 then
+		return false
+	end
+	ctx.Velocity -= normal * into * (1 + Tuning.Physics.BounceRestitution)
+	local flat = MathUtil.flat(ctx.Velocity)
+	if flat.Magnitude > 1 then
+		ctx.Heading = flat.Unit
+	end
+	return true
+end
+
+-- The bounce rule (spec §15): anything that isn't destructible bounces you, walls and the invisible wall past
+-- the disc edge alike. Destructibles don't; milestone 3 breaks them instead. Ground is a landing, not a bounce.
+-- Returns where it bounced, if it did.
+local function bounceOffWalls(ctx: Types.Ctx, dt: number): Vector3?
+	local position = ctx.Root.Position
+	local flatPos = MathUtil.flat(position)
 	if flatPos.Magnitude > Planet.DiscDiameter / 2 + Tuning.World.EdgeWallMargin then
-		local outward = flatPos.Unit
-		local outSpeed = v:Dot(outward)
-		if outSpeed > 0 then
-			v -= outward * outSpeed
-		end
-		-- Mirror the heading off the wall so Glide and Swoop turn back instead of stalling against it.
-		local outHeading = ctx.Heading:Dot(outward)
-		if outHeading > 0 then
-			ctx.Heading = (ctx.Heading - outward * 2 * outHeading).Unit
+		if reflect(ctx, -flatPos.Unit) then
+			return position
 		end
 	end
-	ctx.Velocity = v
+
+	local speed = ctx.Velocity.Magnitude
+	if speed < 1 then
+		return nil
+	end
+	local reach = ctx.Velocity.Unit * (speed * dt + Tuning.Physics.BounceProbe)
+	local hit = workspace:Raycast(position, reach, ctx.RaycastParams)
+	if
+		hit
+		and hit.Normal.Y < Tuning.Physics.MinGroundNormalY
+		and not Destructibles.isDestructible(hit.Instance)
+		and reflect(ctx, hit.Normal)
+	then
+		return hit.Position
+	end
+	return nil
 end
 
 -- Predicts ground contact this frame so even terminal-speed dives never tunnel through the surface.
@@ -215,7 +247,16 @@ local function step(dt: number)
 		return
 	end
 
-	applyLimits(ctx)
+	applyCeiling(ctx)
+	local bouncedAt = bounceOffWalls(ctx, dt)
+	if bouncedAt then
+		Controller.Bounced:Fire(bouncedAt)
+		-- A dive or swoop can't hold a reversed path; the bounce throws you back into a glide.
+		if ctx.State == "Dive" or ctx.State == "Swoop" then
+			transition(ctx, "Glide", nil)
+			return
+		end
+	end
 	local ground = if state.SkipTouchdown then nil else findTouchdown(ctx, dt)
 	if ground then
 		local landing = { Speed = ctx.Velocity.Magnitude, FromDive = ctx.State == "Dive" }
@@ -291,6 +332,7 @@ local function attach(character: Model)
 
 		GlideEnergy = Tuning.GlideEnergy.Max,
 		BurstCharge = 1,
+		BurstAscentTime = 0,
 		HopChain = 0,
 		LastLandTime = -math.huge,
 		LandVelocity = Vector3.zero,

@@ -49,7 +49,8 @@ export type Ctx = {
 	Bank: number, -- degrees, positive = roll right
 
 	GlideEnergy: number,
-	BurstCharge: number, -- share of a full Burst the last charge reached (0–1)
+	BurstCharge: number, -- 0–1 strength of the last Burst for effects (height / Burst.FeelFullHeight)
+	BurstAscentTime: number, -- seconds from ignition to apex of the last Burst
 	HopChain: number,
 	LastLandTime: number,
 	LandVelocity: Vector3, -- horizontal velocity at the last touchdown; chain hops keep it
