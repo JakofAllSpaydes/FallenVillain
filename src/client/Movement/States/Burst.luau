@@ -29,20 +29,9 @@ function Burst.ceiling(power: number): number
 	return height
 end
 
--- Target height for a hold of `seconds`, geometric between the HoldHeights points.
+-- Target height for a hold of `seconds` (Burst.HoldHeights).
 function Burst.heightForHold(seconds: number): number
-	local points = Tuning.Burst.HoldHeights
-	if seconds <= points[1][1] then
-		return points[1][2]
-	end
-	for index = 2, #points do
-		local a, b = points[index - 1], points[index]
-		if seconds <= b[1] then
-			local t = (seconds - a[1]) / math.max(b[1] - a[1], 1e-3)
-			return a[2] * (b[2] / a[2]) ^ t
-		end
-	end
-	return points[#points][2]
+	return MathUtil.holdCurve(Tuning.Burst.HoldHeights, seconds)
 end
 
 -- Launch velocity that reaches `height`: solves v·Ignition + v²/2g = height.

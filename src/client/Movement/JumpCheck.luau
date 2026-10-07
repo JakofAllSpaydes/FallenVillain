@@ -13,8 +13,13 @@
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
+local Signal = require(Shared.Signal)
+local MathUtil = require(script.Parent.MathUtil)
 
 local JumpCheck = {}
+
+-- (seconds held) each time a hold on the ground crosses a Burst.Tiers threshold
+JumpCheck.TierReached = Signal.new() :: Signal.Signal<number>
 
 local pressedAt: number? = nil
 local airHeld = 0
@@ -36,7 +41,12 @@ function JumpCheck.track(ctx: Types.Ctx, dt: number, onGround: boolean)
 	end
 	if ctx.Input.JumpHeld then
 		if onGround then
+			local before = JumpCheck.held() or 0
 			groundHeld += dt
+			local after = JumpCheck.held() or 0
+			if MathUtil.tier(Tuning.Burst.Tiers, after) > MathUtil.tier(Tuning.Burst.Tiers, before) then
+				JumpCheck.TierReached:Fire(after)
+			end
 		else
 			airHeld += dt
 		end

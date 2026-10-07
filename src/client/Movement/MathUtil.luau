@@ -26,6 +26,33 @@ function MathUtil.moveTowardVector(current: Vector3, target: Vector3, maxDelta: 
 	return current + delta.Unit * maxDelta
 end
 
+-- Value of a hold-time curve: points are { seconds, value } sorted by seconds, interpolated geometrically so the
+-- curve starts gentle and climbs harder the longer the hold. Clamped to the first and last points.
+function MathUtil.holdCurve(points: { { number } }, seconds: number): number
+	if seconds <= points[1][1] then
+		return points[1][2]
+	end
+	for index = 2, #points do
+		local a, b = points[index - 1], points[index]
+		if seconds <= b[1] then
+			local t = (seconds - a[1]) / math.max(b[1] - a[1], 1e-3)
+			return a[2] * (b[2] / a[2]) ^ t
+		end
+	end
+	return points[#points][2]
+end
+
+-- Number of tier thresholds (sorted seconds) a hold has reached.
+function MathUtil.tier(thresholds: { number }, seconds: number): number
+	local reached = 0
+	for _, threshold in thresholds do
+		if seconds >= threshold then
+			reached += 1
+		end
+	end
+	return reached
+end
+
 -- Exponential approach that is frame-rate independent: rate is 1/seconds.
 function MathUtil.approach(current: number, target: number, rate: number, dt: number): number
 	return target + (current - target) * math.exp(-rate * dt)

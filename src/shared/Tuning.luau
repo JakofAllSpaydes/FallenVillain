@@ -53,12 +53,19 @@ local Tuning = {
 		Reflect = 1, -- extra share of the speed you were moving into the surface that bounces back
 		GroundedMult = 0.6, -- rocket strength when punching from the ground instead of timing it from the air
 		MaxLaunchSpeed = 520,
-		DashTapSpeed = 80, -- dash added by a tap punch
-		DashFullSpeed = 240, -- dash added by a fully charged punch
+		-- Lunge speed for an LMB hold of N seconds, geometric between points (the forward twin of Burst.HoldHeights).
+		HoldBoosts = {
+			{ 0, 80 },
+			{ 0.6, 240 },
+			{ 3, 360 },
+			{ 10, 520 },
+			{ 25, 800 },
+			{ 60, 1200 },
+		},
+		Tiers = { 0.6, 5, 15, 30 }, -- seconds held where the charge steps up a tier (ring colour, chime, release juice)
 		DashDecayTap = 12, -- 1/seconds a tap punch's added speed dies off at: a sharp jab
 		DashDecayFull = 1.5, -- a fully charged punch's added speed lasts much longer
 		DashKeepSideways = 0.3, -- share of velocity across the dash direction that survives it
-		MaxDashSpeed = 320,
 		MaxDiveBonus = 240, -- most speed punches can stack on one dive above its terminal speed
 		GroundDashLift = 35, -- a ground dash always leaves the ground with at least this much upward speed
 		DashEnergyCost = 10,
@@ -81,6 +88,7 @@ local Tuning = {
 			{ 30, 3700 },
 			{ 60, 16000 },
 		},
+		Tiers = { 5, 15, 30 }, -- seconds held where the Burst charge steps up a tier: clouds, above them, atmosphere
 		FeelFullHeight = 1500, -- Burst height at which byCharge effects reach full strength
 		MinFeelCharge = 0.15,
 		IgnitionTime = 0.3,
@@ -405,15 +413,54 @@ local Tuning = {
 			{ ui = "Altitude", to = 0, dur = 0.4 },
 		},
 
+		-- Punch releases scale by tier (minHeld is the LMB hold in seconds); every release stops the charge hum.
+		Dash = {
+			{ loop = "PunchHum", to = 0, dur = 0.1 },
+			{ sound = "Dash" },
+			{ cam = "fovOffset", kick = 5, dur = 0.3 },
+			{ cam = "shake", kick = 0.3, freq = 30, dur = 0.25, minHeld = 0.6 },
+			{ cam = "fovOffset", kick = 6, dur = 0.4, minHeld = 0.6 },
+			{ sound = "RocketPop", minHeld = 5 },
+			{ post = "Flash", kick = 0.25, dur = 0.2, minHeld = 5 },
+			{ cam = "shake", kick = 0.8, freq = 30, dur = 0.5, minHeld = 5 },
+			{ spawn = "Shockwave", radius = 20, alpha = 0.5, dur = 0.4, minHeld = 5 },
+			{ sound = "BurstCrack", minHeld = 15 },
+			{ post = "Flash", kick = 0.5, dur = 0.3, minHeld = 15 },
+			{ post = "Blur", kick = 8, dur = 0.4, minHeld = 15 },
+			{ spawn = "Shockwave", radius = 40, alpha = 0.6, dur = 0.5, minHeld = 15 },
+			{ time = 0.2, dur = 0.08, minHeld = 30 },
+			{ sound = "SubHit", minHeld = 30 },
+			{ cam = "shake", kick = 1.5, freq = 35, dur = 0.8, minHeld = 30 },
+		},
 		Rocket = {
+			{ loop = "PunchHum", to = 0, dur = 0.1 },
 			{ sound = "RocketPop" },
 			{ cam = "shake", kick = 0.5, freq = 30, dur = 0.3 },
 			{ cam = "fovOffset", kick = 6, dur = 0.3 },
 			{ spawn = "Dust", count = 30 },
+			{ post = "Flash", kick = 0.25, dur = 0.2, minHeld = 5 },
+			{ sound = "BurstCrack", minHeld = 15 },
+			{ cam = "shake", kick = 1.2, freq = 35, dur = 0.6, minHeld = 15 },
 		},
-		Dash = {
-			{ sound = "Dash" },
-			{ cam = "fovOffset", kick = 5, dur = 0.3 },
+		Fizzle = { { loop = "PunchHum", to = 0, dur = 0.1 } },
+		-- Charging feedback: a hum that rises with the punch hold, and a chime that climbs a step per tier.
+		PunchCharge = {
+			{ loop = "PunchHum", from = 0, to = 1, dur = 0.2, pitchFrom = 0, pitchTo = 1.5, pitchDur = 30 },
+		},
+		PunchTier = {
+			{ sound = "TierChime1", maxHeld = 5 },
+			{ sound = "TierChime2", minHeld = 5, maxHeld = 15 },
+			{ sound = "TierChime3", minHeld = 15, maxHeld = 30 },
+			{ sound = "TierChime4", minHeld = 30 },
+			{ cam = "fovOffset", kick = 3, dur = 0.25 },
+			{ post = "Flash", kick = 0.08, dur = 0.15, minHeld = 5 },
+		},
+		BurstTier = {
+			{ sound = "TierChime2", maxHeld = 15 },
+			{ sound = "TierChime3", minHeld = 15, maxHeld = 30 },
+			{ sound = "TierChime4", minHeld = 30 },
+			{ cam = "shake", kick = 0.4, freq = 25, dur = 0.3 },
+			{ post = "Flash", kick = 0.1, dur = 0.15 },
 		},
 		-- Bouncing off a wall that isn't destructible.
 		Bounce = {
@@ -447,6 +494,11 @@ local Tuning = {
 		WingFold = { Id = "rbxasset://sounds/action_get_up.mp3", Bus = "Sfx", Volume = 0.5, Pitch = 0.7 },
 		RocketPop = { Id = "rbxasset://sounds/action_jump_land.mp3", Bus = "Sfx", Volume = 0.5, Pitch = 0.8 },
 		Dash = { Id = "rbxasset://sounds/action_jump.mp3", Bus = "Sfx", Volume = 0.6, Pitch = 1.4 },
+		PunchHum = { Id = "rbxasset://sounds/action_falling.ogg", Bus = "Sfx", Volume = 0.25, Pitch = 0.6, Loop = true },
+		TierChime1 = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Sfx", Volume = 0.5, Pitch = 1.2 },
+		TierChime2 = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Sfx", Volume = 0.55, Pitch = 1.5 },
+		TierChime3 = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Sfx", Volume = 0.6, Pitch = 1.8 },
+		TierChime4 = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Sfx", Volume = 0.65, Pitch = 2.2 },
 		Bounce = { Id = "rbxasset://sounds/action_jump_land.mp3", Bus = "Sfx", Volume = 0.4, Pitch = 1.2 },
 	},
 
@@ -499,17 +551,16 @@ local Tuning = {
 		AltitudeTop = 48,
 		AltitudeAlpha = 0.5,
 		RecordPulseTime = 1,
-		PunchWheelSize = 34,
-		PunchWheelOffset = 32, -- pixels right of and below the crosshair
-		PunchWheelThickness = 4,
-		PunchWheelTrackTransparency = 0.75,
-		PunchWheelFade = 0.2,
-		JumpWheelSize = 48,
-		JumpWheelInnerScale = 0.62, -- inner (hop) ring size relative to the outer (Burst) ring
-		JumpWheelThickness = 4,
-		JumpWheelHeight = 4.5, -- studs above the root
-		JumpWheelTrackTransparency = 0.75,
-		JumpWheelFade = 0.2,
+		-- Charge rings (punch beside the crosshair, jump above the head): chunky, outlined, mobile-HUD style.
+		RingThickness = 9,
+		RingBorder = 3, -- dark outline on each side of the ring
+		RingTrackTransparency = 0.35, -- the dark backing ring
+		RingInnerScale = 0.6, -- inner ring size relative to the outer one
+		RingFade = 0.2,
+		PunchWheelSize = 84,
+		PunchWheelOffset = 70, -- pixels right of and below the crosshair
+		JumpWheelSize = 110,
+		JumpWheelHeight = 5, -- studs above the root
 	},
 
 	Dev = {

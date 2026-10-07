@@ -608,7 +608,11 @@ Space is a tap-or-hold check in every ground state (Grounded, Landing, Slide; `M
 
 **Inputs never cancel each other** (review note). Space and LMB holds are tracked on their own (`Movement/JumpCheck.luau`, `ctx.PunchHold`), so pressing or releasing one never loses the other, and only releases act. A punch out of Charging keeps the Space hold; land still holding and Charging resumes. Space held in the air charges up to `Hop.HoldTime` (so you can land with a full hop, or straight into Charging), but anything past that only charges on the ground, so a big Burst can't be banked in the air. Released in the air, the hold is spent.
 
-**Charge rings.** Above the head (`UI/JumpWheel.luau`): an inner ring fills with the hop charge, and once Charging starts an outer ring fills toward the highest Burst your Power allows. Beside the crosshair, the punch ring (`UI/PunchWheel.luau`). Both share `UI/Arc.luau`.
+**The punch charges without limit** (review note: the forward twin of the Burst). `Punch.HoldBoosts` maps seconds held to lunge speed, from a tap's jab to a one-minute map-crossing launch, geometric like `Burst.HoldHeights`. It charges in any state and nothing but releasing it spends it. `Punch.ChargeTime` is now the basic charge: it sets decay, rocket strength and energy cost, which stop growing after it. `Punch.MaxDiveBonus` caps stacking taps on a dive, never a single big punch.
+
+**Charge tiers.** `Punch.Tiers` and `Burst.Tiers` mark where a hold steps up: a rising chime (`PunchTier`, `BurstTier`), a ring colour step, and, for the punch, bigger release juice (`minHeld` entries on `Dash` and `Rocket`: shake, flash, shockwave, the explosion from 15 s, a hitstop from 30 s). A hum rises while the punch charges.
+
+**Charge rings** (review note: bigger, mobile-HUD style). Chunky outlined rings (`UI/Arc.luau`, `UI/ChargeRings.luau`): above the head (`UI/JumpWheel.luau`) the inner ring is the hop charge and the outer ring the Burst toward your Power's ceiling; beside the crosshair (`UI/PunchWheel.luau`) the inner ring is the basic punch charge and the outer ring the long charge. Outer rings step colour per tier.
 
 **Dives keep their momentum** (review note: entering a dive stalled you). Entering a Dive turns your whole speed toward the crosshair instead of keeping only the part already heading that way. A punch during a held dive adds its lunge to the dive and stays (it can exceed terminal by up to `Punch.MaxDiveBonus`) until the dive ends, so tapping boosts without sliding.
 

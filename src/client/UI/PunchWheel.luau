@@ -1,35 +1,35 @@
 --!strict
--- Punch charge wheel: a small ring beside the crosshair that fills clockwise while LMB charges and turns gold
--- when full, then fades out on release.
+-- Punch charge rings beside the crosshair. The inner ring fills over Punch.ChargeTime (a full basic punch);
+-- past that the outer ring fills toward the longest charge in Punch.HoldBoosts, stepping colour at each of
+-- Punch.Tiers. Both fade out on release.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local Tuning = require(game:GetService("ReplicatedStorage").Shared.Tuning)
 local Controller = require(script.Parent.Parent.Movement.Controller)
-local Arc = require(script.Parent.Arc)
+local MathUtil = require(script.Parent.Parent.Movement.MathUtil)
+local Punch = require(script.Parent.Parent.Movement.Punch)
+local ChargeRings = require(script.Parent.ChargeRings)
 
 local PunchWheel = {}
 
--- Look of the wheel; not gameplay tuning.
-local FILL = Color3.new(1, 1, 1)
-local FULL = Color3.fromRGB(240, 200, 90)
-
-local arc: Arc.Arc
-local alpha = 0
-local shownFill = 0 -- last fill, kept while fading out after release
+local rings: ChargeRings.ChargeRings
 
 local function update(dt: number)
-	local U = Tuning.Ui
+	local P = Tuning.Punch
 	local ctx = Controller.ctx
 	local hold = if ctx then ctx.PunchHold else nil
-	local fill = if hold then math.clamp(hold / Tuning.Punch.ChargeTime, 0, 1) else nil
-	local fadeStep = dt / U.PunchWheelFade
-	alpha = if fill then math.min(1, alpha + fadeStep) else math.max(0, alpha - fadeStep)
-	if fill then
-		shownFill = fill
+	local inner, outer = nil, nil
+	if hold then
+		inner = math.clamp(hold / P.ChargeTime, 0, 1)
+		if hold >= P.ChargeTime then
+			local base = Punch.boostFor(P.ChargeTime)
+			local top = P.HoldBoosts[#P.HoldBoosts][2]
+			outer = (Punch.boostFor(hold) - base) / math.max(top - base, 1e-3)
+		end
 	end
-	arc:set(shownFill, if shownFill >= 1 then FULL else FILL, alpha, U.PunchWheelTrackTransparency)
+	rings:update(dt, inner, outer, MathUtil.tier(P.Tiers, hold or 0))
 end
 
 function PunchWheel.start()
@@ -45,8 +45,7 @@ function PunchWheel.start()
 	holder.Size = UDim2.fromOffset(U.PunchWheelSize, U.PunchWheelSize)
 	holder.Position = UDim2.new(0.5, U.PunchWheelOffset, 0.5, U.PunchWheelOffset)
 	holder.Parent = gui
-	arc = Arc.new(holder, UDim2.fromScale(1, 1), U.PunchWheelThickness)
-	arc:set(0, FILL, 0, U.PunchWheelTrackTransparency)
+	rings = ChargeRings.new(holder)
 
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 	RunService.RenderStepped:Connect(update)
