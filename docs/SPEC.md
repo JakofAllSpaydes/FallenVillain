@@ -578,3 +578,13 @@ They chain: dive → skim → slide → hop → tap → dive. **Open for milesto
 **Test tools.** F2 tuning panel (Studio only: sliders, "Print changes", drop-from-altitude buttons). F3 toggles the controls and tech cheat sheet, which shows in every build while `Dev.ShowControlsHud` is on (until milestone 7 onboarding hints replace it) and is updated with every new feature; in Studio it also has a live readout of state, speed, height and glide energy. The current movement state is also exposed as the local player's `MovementState` attribute.
 
 **Engine note.** This Studio build no longer places `PlayerModule` in PlayerScripts, so movement input is read directly from the keyboard and gamepad (`Movement/Input.luau`); the Humanoid's default walking still works.
+
+### To fix at the start of milestone 2
+
+Notes from the milestone 1 review, to settle and build before the Charging/Burst work:
+
+- **Remove the tap boost.** Tapping LMB for speed feels wrong. The boost moves to the punch charge (below).
+- **Split dive and punch.** In the air, **Space** dives (today Space flaps and LMB dives). **LMB** becomes a punch. This changes the §3 input table and the onboarding hints in §8, so confirm the full input map before building.
+- **Punch charge is the boost.** Holding LMB charges the punch; that charge replaces the tap boost.
+- **Rocket jump.** Punching the ground launches you, and cancelling a punch with a jump is a candidate for another trick. Design these with the punch.
+- Update the controls HUD (`ControlsHud.luau`) and the tricks list in this section to match.
