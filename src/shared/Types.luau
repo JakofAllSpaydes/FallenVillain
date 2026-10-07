@@ -62,6 +62,7 @@ export type Ctx = {
 	PunchReadyAt: number,
 	PunchBoost: Vector3, -- speed a punch added that hasn't decayed yet
 	PunchBoostRate: number, -- 1/seconds that boost decays at
+	DiveBonus: number, -- speed punches have added to the current dive, above its terminal speed
 	TimeScale: number, -- hitstop and slow-mo multiplier on dt this frame
 }
 

@@ -59,6 +59,7 @@ local Tuning = {
 		DashDecayFull = 1.5, -- a fully charged punch's added speed lasts much longer
 		DashKeepSideways = 0.3, -- share of velocity across the dash direction that survives it
 		MaxDashSpeed = 320,
+		MaxDiveBonus = 240, -- most speed punches can stack on one dive above its terminal speed
 		GroundDashLift = 35, -- a ground dash always leaves the ground with at least this much upward speed
 		DashEnergyCost = 10,
 		Cooldown = 0.25,
@@ -227,6 +228,7 @@ local Tuning = {
 		AlignMaxTorque = 1e7,
 		BounceRestitution = 0.7, -- share of the speed into a non-destructible wall that bounces back
 		GroundHoldProbe = 4, -- how far below standing height ground states look for the floor
+		MinGroundBounceSpeed = 40, -- a dive hitting the ground slower than this lands instead of bouncing
 		BounceProbe = 2, -- studs beyond this frame's travel to look for walls
 	},
 

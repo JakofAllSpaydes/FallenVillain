@@ -566,7 +566,7 @@ Changes to the spec above, agreed during milestone reviews. Where this section a
 | Tech | Input | Effect |
 | --- | --- | --- |
 | Perfect bunny hop | Hop within `Hop.ChainWindow` of landing or of starting a slide | Keeps landing speed plus `Tech.PerfectHopBonus` |
-| Dive-slide | Touch down from Dive or Swoop at under `Tech.SlideMaxAngle` with at least `Tech.SlideMinSpeed` | New `Slide` state: slide on the ground with friction; hop out keeps speed; off a ledge → Glide |
+| Dive-slide (Swoop only since milestone 2; dives bounce) | Touch down from Dive or Swoop at under `Tech.SlideMaxAngle` with at least `Tech.SlideMinSpeed` | New `Slide` state: slide on the ground with friction; hop out keeps speed; off a ledge → Glide |
 | Swoop skim | Swoop pull-up passes within `Tech.SkimHeight` of the ground | `+Tech.SkimBoost` speed and the arc levels off low instead of climbing |
 
 They chain: dive → skim → slide → hop → dive. (The milestone 1 tap boost was replaced by the punch dash in milestone 2.) **Open for milestone 3:** §4.8 says any dive into the ground is an Impact. Proposed: steep dives smash, shallow ones do a small smash and then slide.
@@ -602,13 +602,15 @@ Space is a tap-or-hold check in every ground state (Grounded, Landing, Slide; `M
 
 **FeelTable lives in `Tuning.Feel`**, so every effect value is also a live F2 slider. `Feel/Juice.luau` routes entries to `CameraEffects`, `Post`, `Audio`, `Vfx` and the altitude readout; every sink is a set of additive layers (`Feel/Layers.luau`). Events are the state entered, `Exit<State>`, the punch results (`Rocket`, `Dash`), `Bounce` and `RemoteBurst`.
 
-**The bounce rule** (review note): anything that isn't destructible bounces you; destructibles don't (milestone 3 breaks them). Each air frame the controller looks along the velocity for a wall (a surface steeper than `Physics.MinGroundNormalY`) without the `Destructible` tag and reflects the velocity off it with `Physics.BounceRestitution`; the invisible wall past the disc edge bounces the same way. Ground is a landing, not a bounce. A Dive or Swoop that bounces becomes a Glide.
+**The bounce rule** (review note): anything that isn't destructible bounces you; destructibles don't (milestone 3 breaks them). Each air frame the controller looks along the velocity for a wall (a surface steeper than `Physics.MinGroundNormalY`) without the `Destructible` tag and reflects the velocity off it with `Physics.BounceRestitution`; the invisible wall past the disc edge bounces the same way. A Dive or Swoop that bounces off a wall becomes a Glide. A Dive that hits the ground faster than `Physics.MinGroundBounceSpeed` bounces off it too (review note: "any non-destructible surface bounces"), keeping its forward speed, so a shallow dive skips; other states land. This replaces the dive-slide; only Swoop touchdowns slide now. Milestone 3 decides how dive impacts smash alongside this.
 
 **Burst sound.** Only Bursts held at least 5 s get the explosion (`minHeld` on the FeelTable entries); shorter ones play a hop sound (`maxHeld`).
 
 **Inputs never cancel each other** (review note). Space and LMB holds are tracked on their own (`Movement/JumpCheck.luau`, `ctx.PunchHold`), so pressing or releasing one never loses the other, and only releases act. A punch out of Charging keeps the Space hold; land still holding and Charging resumes. Space held in the air charges up to `Hop.HoldTime` (so you can land with a full hop, or straight into Charging), but anything past that only charges on the ground, so a big Burst can't be banked in the air. Released in the air, the hold is spent.
 
 **Charge rings.** Above the head (`UI/JumpWheel.luau`): an inner ring fills with the hop charge, and once Charging starts an outer ring fills toward the highest Burst your Power allows. Beside the crosshair, the punch ring (`UI/PunchWheel.luau`). Both share `UI/Arc.luau`.
+
+**Dives keep their momentum** (review note: entering a dive stalled you). Entering a Dive turns your whole speed toward the crosshair instead of keeping only the part already heading that way. A punch during a held dive adds its lunge to the dive and stays (it can exceed terminal by up to `Punch.MaxDiveBonus`) until the dive ends, so tapping boosts without sliding.
 
 **Snappy punches** (review note: a tapped punch slid). The lunge a punch adds decays at `Punch.DashDecayTap` for a tap down to `Punch.DashDecayFull` at full charge, so a tap is a sharp jab and only a charged punch carries you.
 

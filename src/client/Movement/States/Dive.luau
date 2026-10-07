@@ -37,7 +37,10 @@ function Dive.enter(ctx: Types.Ctx, payload: any)
 	holdTime = 0
 	direction = aimDirection(ctx)
 	entryDirection = direction
-	speed = math.max(0, ctx.Velocity:Dot(direction))
+	-- All the momentum you had turns into the dive, whichever way you were going.
+	speed = ctx.Velocity.Magnitude
+	ctx.Velocity = direction * speed
+	ctx.DiveBonus = 0
 	ctx.Bank = 0
 end
 
@@ -61,7 +64,8 @@ function Dive.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 	speed = math.max(0, ctx.Velocity:Dot(direction))
 	local gravity = ramp(Tuning.Gravity.DiveStart, Tuning.Gravity.DiveEnd, Tuning.Gravity.DiveRampTime)
 	speed += (T.Thrust - gravity * direction.Y) * dt
-	speed = math.clamp(speed, 0, ramp(T.TerminalStart, T.TerminalEnd, T.TerminalRampTime))
+	-- Punches during the dive add speed on top of terminal until the dive ends.
+	speed = math.clamp(speed, 0, ramp(T.TerminalStart, T.TerminalEnd, T.TerminalRampTime) + ctx.DiveBonus)
 
 	local flat = MathUtil.flat(direction)
 	if flat.Magnitude > 0.05 then

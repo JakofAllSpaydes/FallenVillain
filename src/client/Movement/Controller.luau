@@ -193,11 +193,11 @@ local function findTouchdown(ctx: Types.Ctx, dt: number): RaycastResult?
 	return nil
 end
 
--- Dive-slide: a fast, shallow touchdown out of Dive or Swoop keeps its momentum on the ground.
+-- Swoop-slide: a fast, shallow touchdown out of a Swoop keeps its momentum on the ground. (Dives bounce.)
 -- Call before placeOnGround; uses LandVelocity and the pre-touchdown velocity.
 local function canSlide(ctx: Types.Ctx, speed: number): boolean
 	local T = Tuning.Tech
-	if ctx.State ~= "Dive" and ctx.State ~= "Swoop" then
+	if ctx.State ~= "Swoop" then
 		return false
 	end
 	if ctx.LandVelocity.Magnitude < T.SlideMinSpeed or speed < 1e-3 then
@@ -261,6 +261,19 @@ local function step(dt: number)
 		end
 	end
 	local ground = if state.SkipTouchdown then nil else findTouchdown(ctx, dt)
+	if ground and ctx.State == "Dive" and not Destructibles.isDestructible(ground.Instance) then
+		-- The bounce rule covers the ground too: a dive that hits it hard enough bounces off.
+		local bounced = ctx.Velocity
+		local into = -bounced:Dot(ground.Normal)
+		if into >= Tuning.Physics.MinGroundBounceSpeed then
+			bounced += ground.Normal * into * (1 + Tuning.Physics.BounceRestitution)
+			placeOnGround(ctx, ground.Position)
+			ctx.Velocity = bounced
+			Controller.Bounced:Fire(ground.Position)
+			transition(ctx, "Hop", { Launch = true })
+			return
+		end
+	end
 	if ground then
 		local landing = { Speed = ctx.Velocity.Magnitude, FromDive = ctx.State == "Dive" }
 		ctx.LandVelocity = MathUtil.flat(ctx.Velocity)
@@ -347,6 +360,7 @@ local function attach(character: Model)
 		PunchReadyAt = 0,
 		PunchBoost = Vector3.zero,
 		PunchBoostRate = 0,
+		DiveBonus = 0,
 		TimeScale = 1,
 	}
 	States.Grounded.enter(ctx, nil)

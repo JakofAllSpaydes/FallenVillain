@@ -139,6 +139,18 @@ function Punch.update(ctx: Types.Ctx, mode: ("Ground" | "Air")?, dt: number): (T
 		return "Hop", { Launch = true }
 	end
 
+	-- During a held dive the lunge just adds to the dive and stays until it hits something.
+	if ctx.State == "Dive" and ctx.Input.JumpHeld then
+		local toAim = ctx.AimPoint - ctx.Root.Position
+		local direction = if toAim.Magnitude > 1e-3 then toAim.Unit else ctx.LookDirection
+		local boost = math.min(boostFor(charge), math.max(0, Tuning.Punch.MaxDiveBonus - ctx.DiveBonus))
+		ctx.Velocity += direction * boost
+		ctx.DiveBonus += boost
+		ctx.GlideEnergy = math.max(0, ctx.GlideEnergy - Tuning.Punch.DashEnergyCost * charge)
+		Punch.Fired:Fire("Dash", charge, ctx.Root.Position)
+		return nil
+	end
+
 	local velocity, added = dash(ctx, charge)
 	-- From the ground only the horizontal lunge decays; the lift is left to gravity.
 	setBoost(ctx, if grounded then MathUtil.flat(added) else added, charge)
