@@ -1,7 +1,9 @@
 --!strict
--- A pair of charge rings: the inner one fills for the basic charge and turns gold when full; the outer one
--- appears around it for the long charge and steps through tier colours as it climbs. Each ring fades in while
--- its value is given and fades out (keeping its last fill) when it isn't.
+-- Concentric charge rings, one per tier. The rings are a purely visual split of one hold time: ring k fills
+-- from the end of ring k−1 to `ends[k]` seconds, so with tier ends that spread out, each ring fills fast at
+-- first and later rings take longer. Ring 1 is innermost; each ring appears when the previous one fills.
+-- A filled ring turns gold; the ring that is filling shows its tier colour. Fades out (keeping its fill) when
+-- the hold ends. Add a tier to the tier list and a ring appears for it.
 
 local Tuning = require(game:GetService("ReplicatedStorage").Shared.Tuning)
 local Arc = require(script.Parent.Arc)
@@ -10,48 +12,60 @@ local ChargeRings = {}
 ChargeRings.__index = ChargeRings
 
 -- Look of the rings; not gameplay tuning.
-local BASE = Color3.new(1, 1, 1)
 local FULL = Color3.fromRGB(240, 200, 90)
 local TIER_COLORS = {
+	Color3.new(1, 1, 1),
 	Color3.fromRGB(175, 205, 255),
-	Color3.fromRGB(240, 200, 90),
-	Color3.fromRGB(255, 140, 50),
-	Color3.fromRGB(255, 70, 60),
+	Color3.fromRGB(255, 160, 70),
+	Color3.fromRGB(255, 80, 70),
+	Color3.fromRGB(220, 130, 255),
 	Color3.fromRGB(255, 240, 225),
 }
 
 type Ring = { Arc: Arc.Arc, Alpha: number, Fill: number, Color: Color3 }
-export type ChargeRings = typeof(setmetatable({} :: { Inner: Ring, Outer: Ring }, ChargeRings))
+export type ChargeRings = typeof(setmetatable({} :: { Rings: { Ring }, Held: number }, ChargeRings))
 
-local function newRing(parent: Instance, scale: number): Ring
+function ChargeRings.new(parent: Instance, count: number): ChargeRings
 	local U = Tuning.Ui
-	local arc = Arc.new(parent, UDim2.fromScale(scale, scale), U.RingThickness, U.RingBorder, U.RingTrackTransparency)
-	return { Arc = arc, Alpha = 0, Fill = 0, Color = BASE }
-end
-
-function ChargeRings.new(parent: Instance): ChargeRings
-	-- Outer first so the inner ring draws on top of it.
-	local outer = newRing(parent, 1)
-	local inner = newRing(parent, Tuning.Ui.RingInnerScale)
-	return setmetatable({ Inner = inner, Outer = outer }, ChargeRings)
-end
-
-local function step(ring: Ring, value: number?, color: Color3, dt: number)
-	local fadeStep = dt / Tuning.Ui.RingFade
-	if value ~= nil then
-		ring.Fill = value
-		ring.Color = color
-		ring.Alpha = math.min(1, ring.Alpha + fadeStep)
-	else
-		ring.Alpha = math.max(0, ring.Alpha - fadeStep)
+	local rings = {}
+	-- Outermost first so inner rings draw on top.
+	for k = count, 1, -1 do
+		local scale = if count > 1 then U.RingInnerScale + (1 - U.RingInnerScale) * (k - 1) / (count - 1) else 1
+		local arc =
+			Arc.new(parent, UDim2.fromScale(scale, scale), U.RingThickness, U.RingBorder, U.RingTrackTransparency)
+		rings[k] = { Arc = arc, Alpha = 0, Fill = 0, Color = TIER_COLORS[1] }
 	end
-	ring.Arc:set(ring.Fill, ring.Color, ring.Alpha)
+	return setmetatable({ Rings = rings, Held = 0 }, ChargeRings)
 end
 
--- inner / outer: 0–1 fills, or nil to fade that ring out. tier: 1-based colour step for the outer ring.
-function ChargeRings.update(self: ChargeRings, dt: number, inner: number?, outer: number?, tier: number)
-	step(self.Inner, inner, if inner ~= nil and inner >= 1 then FULL else BASE, dt)
-	step(self.Outer, outer, TIER_COLORS[math.clamp(tier, 1, #TIER_COLORS)], dt)
+-- held: seconds of the current hold, or nil to fade out. ends: seconds where each ring is full.
+-- showFrom: seconds before which nothing shows. maxed: everything shows gold (the charge can't grow further).
+function ChargeRings.update(
+	self: ChargeRings,
+	dt: number,
+	held: number?,
+	ends: { number },
+	showFrom: number,
+	maxed: boolean
+)
+	local fadeStep = dt / Tuning.Ui.RingFade
+	local active = held ~= nil and held >= showFrom
+	if active then
+		self.Held = held :: number
+	end
+	for k, ring in self.Rings do
+		local start = ends[k - 1] or 0
+		local finish = ends[k] or start
+		local shown = active and (k == 1 or self.Held >= start)
+		if shown then
+			ring.Fill = math.clamp((self.Held - start) / math.max(finish - start, 1e-3), 0, 1)
+			ring.Color = if maxed or ring.Fill >= 1 then FULL else TIER_COLORS[math.min(k, #TIER_COLORS)]
+			ring.Alpha = math.min(1, ring.Alpha + fadeStep)
+		else
+			ring.Alpha = math.max(0, ring.Alpha - fadeStep)
+		end
+		ring.Arc:set(ring.Fill, ring.Color, ring.Alpha)
+	end
 end
 
 return ChargeRings

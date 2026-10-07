@@ -62,11 +62,9 @@ local Tuning = {
 			{ 25, 800 },
 			{ 60, 1200 },
 		},
-		Tiers = { 0.6, 5, 15, 30 }, -- seconds held where the charge steps up a tier (ring colour, chime, release juice)
-		DashDecayTap = 12, -- 1/seconds a tap punch's added speed dies off at: a sharp jab
-		DashDecayFull = 1.5, -- a fully charged punch's added speed lasts much longer
-		DashKeepSideways = 0.3, -- share of velocity across the dash direction that survives it
-		MaxDiveBonus = 240, -- most speed punches can stack on one dive above its terminal speed
+		-- Seconds held where the charge steps up a tier: a chime, a new ring, bigger release juice. Each tier adds a
+		-- ring to the punch wheel; the last ring ends at the last HoldBoosts point.
+		Tiers = { 0.6, 5, 20 },
 		GroundDashLift = 35, -- a ground dash always leaves the ground with at least this much upward speed
 		DashEnergyCost = 10,
 		Cooldown = 0.25,
@@ -88,7 +86,9 @@ local Tuning = {
 			{ 30, 3700 },
 			{ 60, 16000 },
 		},
-		Tiers = { 5, 15, 30 }, -- seconds held where the Burst charge steps up a tier: clouds, above them, atmosphere
+		-- Seconds held where the Burst charge steps up a tier (into the clouds, above them). The jump wheel shows a
+		-- hop ring, then one ring per tier, the last ending at the last HoldHeights point.
+		Tiers = { 5, 20 },
 		FeelFullHeight = 1500, -- Burst height at which byCharge effects reach full strength
 		MinFeelCharge = 0.15,
 		IgnitionTime = 0.3,
@@ -125,7 +125,7 @@ local Tuning = {
 		YawRate = 90,
 		Accel = 60,
 		Decel = 40, -- braking toward a lower target when pitched up
-		OverspeedBleed = 10, -- how slowly speed above ForwardSpeed bleeds off, so boosts and chains carry
+		FallToForward = 1, -- share of the fall speed shed when levelling out that becomes forward speed
 		PitchResponse = 4,
 		PitchUpSpeedFactor = 0.6,
 		SinkRecovery = 120,
@@ -147,13 +147,10 @@ local Tuning = {
 
 	Dive = {
 		Thrust = 120,
-		TerminalStart = 380,
-		TerminalEnd = 420,
 		ConeStart = 25,
 		ConeEnd = 60,
 		ConeWidenTime = 1,
 		SteerRate = 35,
-		TerminalRampTime = 2,
 		MaxPitch = -10,
 		MinHoldTime = 0.2, -- a tapped dive lasts this long
 	},
@@ -162,7 +159,6 @@ local Tuning = {
 		MinEntrySpeed = 150,
 		LiftFraction = 0.55,
 		MaxLift = 160,
-		BleedPerSecond = 0.35,
 		ExitSpeed = 90,
 		Cooldown = 1.2,
 		MaxAirGainFraction = 0.25,
@@ -236,6 +232,8 @@ local Tuning = {
 		AlignMaxTorque = 1e7,
 		BounceRestitution = 0.7, -- share of the speed into a non-destructible wall that bounces back
 		GroundHoldProbe = 4, -- how far below standing height ground states look for the floor
+		BounceSteerPause = 0.8, -- seconds a glide stops turning toward the look after a wall bounce
+		MaxBounceSpeed = 260, -- fastest a bounce throws you out of a surface; speed along it is kept
 		MinGroundBounceSpeed = 40, -- a dive hitting the ground slower than this lands instead of bouncing
 		BounceProbe = 2, -- studs beyond this frame's travel to look for walls
 	},
@@ -424,13 +422,13 @@ local Tuning = {
 			{ post = "Flash", kick = 0.25, dur = 0.2, minHeld = 5 },
 			{ cam = "shake", kick = 0.8, freq = 30, dur = 0.5, minHeld = 5 },
 			{ spawn = "Shockwave", radius = 20, alpha = 0.5, dur = 0.4, minHeld = 5 },
-			{ sound = "BurstCrack", minHeld = 15 },
-			{ post = "Flash", kick = 0.5, dur = 0.3, minHeld = 15 },
-			{ post = "Blur", kick = 8, dur = 0.4, minHeld = 15 },
-			{ spawn = "Shockwave", radius = 40, alpha = 0.6, dur = 0.5, minHeld = 15 },
-			{ time = 0.2, dur = 0.08, minHeld = 30 },
-			{ sound = "SubHit", minHeld = 30 },
-			{ cam = "shake", kick = 1.5, freq = 35, dur = 0.8, minHeld = 30 },
+			{ sound = "BurstCrack", minHeld = 20 },
+			{ post = "Flash", kick = 0.5, dur = 0.3, minHeld = 20 },
+			{ post = "Blur", kick = 8, dur = 0.4, minHeld = 20 },
+			{ spawn = "Shockwave", radius = 40, alpha = 0.6, dur = 0.5, minHeld = 20 },
+			{ time = 0.2, dur = 0.08, minHeld = 40 },
+			{ sound = "SubHit", minHeld = 40 },
+			{ cam = "shake", kick = 1.5, freq = 35, dur = 0.8, minHeld = 40 },
 		},
 		Rocket = {
 			{ loop = "PunchHum", to = 0, dur = 0.1 },
@@ -439,8 +437,8 @@ local Tuning = {
 			{ cam = "fovOffset", kick = 6, dur = 0.3 },
 			{ spawn = "Dust", count = 30 },
 			{ post = "Flash", kick = 0.25, dur = 0.2, minHeld = 5 },
-			{ sound = "BurstCrack", minHeld = 15 },
-			{ cam = "shake", kick = 1.2, freq = 35, dur = 0.6, minHeld = 15 },
+			{ sound = "BurstCrack", minHeld = 20 },
+			{ cam = "shake", kick = 1.2, freq = 35, dur = 0.6, minHeld = 20 },
 		},
 		Fizzle = { { loop = "PunchHum", to = 0, dur = 0.1 } },
 		-- Charging feedback: a hum that rises with the punch hold, and a chime that climbs a step per tier.
@@ -449,16 +447,14 @@ local Tuning = {
 		},
 		PunchTier = {
 			{ sound = "TierChime1", maxHeld = 5 },
-			{ sound = "TierChime2", minHeld = 5, maxHeld = 15 },
-			{ sound = "TierChime3", minHeld = 15, maxHeld = 30 },
-			{ sound = "TierChime4", minHeld = 30 },
+			{ sound = "TierChime2", minHeld = 5, maxHeld = 20 },
+			{ sound = "TierChime3", minHeld = 20 },
 			{ cam = "fovOffset", kick = 3, dur = 0.25 },
 			{ post = "Flash", kick = 0.08, dur = 0.15, minHeld = 5 },
 		},
 		BurstTier = {
-			{ sound = "TierChime2", maxHeld = 15 },
-			{ sound = "TierChime3", minHeld = 15, maxHeld = 30 },
-			{ sound = "TierChime4", minHeld = 30 },
+			{ sound = "TierChime2", maxHeld = 20 },
+			{ sound = "TierChime4", minHeld = 20 },
 			{ cam = "shake", kick = 0.4, freq = 25, dur = 0.3 },
 			{ post = "Flash", kick = 0.1, dur = 0.15 },
 		},
@@ -552,14 +548,14 @@ local Tuning = {
 		AltitudeAlpha = 0.5,
 		RecordPulseTime = 1,
 		-- Charge rings (punch beside the crosshair, jump above the head): chunky, outlined, mobile-HUD style.
-		RingThickness = 9,
-		RingBorder = 3, -- dark outline on each side of the ring
+		RingThickness = 6,
+		RingBorder = 2, -- dark outline on each side of the ring
 		RingTrackTransparency = 0.35, -- the dark backing ring
-		RingInnerScale = 0.6, -- inner ring size relative to the outer one
+		RingInnerScale = 0.38, -- innermost ring size relative to the outermost; the rest are spaced evenly between
 		RingFade = 0.2,
-		PunchWheelSize = 84,
-		PunchWheelOffset = 70, -- pixels right of and below the crosshair
-		JumpWheelSize = 110,
+		PunchWheelSize = 110,
+		PunchWheelOffset = 80, -- pixels right of and below the crosshair
+		JumpWheelSize = 130,
 		JumpWheelHeight = 5, -- studs above the root
 	},
 

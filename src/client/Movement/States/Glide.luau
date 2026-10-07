@@ -45,12 +45,13 @@ function Glide.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 		* (1 + (T.PitchUpSpeedFactor - 1) * pitchUp)
 		* Punch.slow(ctx, Tuning.Punch.ChargeGlideMult)
 	local speed = math.max(0, MathUtil.flat(ctx.Velocity):Dot(ctx.Heading))
-	-- Speed above ForwardSpeed (from boosts, swoops and chains) bleeds slowly unless the player pitches up to brake.
-	local rate = if speed < targetSpeed
-		then T.Accel
-		elseif speed > T.ForwardSpeed then T.OverspeedBleed + (T.Decel - T.OverspeedBleed) * pitchUp
-		else T.Decel
-	speed = MathUtil.moveToward(speed, targetSpeed, rate * dt)
+	-- Speed only grows on its own: below the target it accelerates, above it it is kept unless the player
+	-- pitches up to brake.
+	if speed < targetSpeed then
+		speed = MathUtil.moveToward(speed, targetSpeed, T.Accel * dt)
+	elseif pitchUp > 0 then
+		speed = MathUtil.moveToward(speed, targetSpeed, T.Decel * pitchUp * dt)
+	end
 
 	local noseDown = (T.PitchMax - pitch) / (T.PitchMax - T.PitchMin)
 	local sink = T.SinkMin + (T.SinkMax - T.SinkMin) * noseDown
@@ -59,7 +60,12 @@ function Glide.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 	end
 	vy -= Tuning.Gravity.Glide * dt
 	if vy < -sink then
-		vy = MathUtil.moveToward(vy, -sink, T.SinkRecovery * dt)
+		-- Levelling out of a fast fall turns the fall speed you arrived with into forward speed instead of
+		-- losing it (gravity's steady pull in a settled glide doesn't count, or the glide would speed up forever).
+		local levelled = MathUtil.moveToward(vy, -sink, T.SinkRecovery * dt)
+		local arrived = math.max(0, -sink - ctx.Velocity.Y)
+		speed += math.min(levelled - vy, arrived) * T.FallToForward
+		vy = levelled
 	end
 
 	ctx.Velocity = ctx.Heading * speed + Vector3.yAxis * vy

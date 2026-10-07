@@ -60,9 +60,7 @@ export type Ctx = {
 	Power: number, -- upgrade level 1–25; sets Burst velocity
 	PunchHold: number?, -- seconds LMB has been held, nil when not charging a punch
 	PunchReadyAt: number,
-	PunchBoost: Vector3, -- speed a punch added that hasn't decayed yet
-	PunchBoostRate: number, -- 1/seconds that boost decays at
-	DiveBonus: number, -- speed punches have added to the current dive, above its terminal speed
+	LookFollowAfter: number, -- Glide and Swoop don't turn toward the camera look until this time (after a bounce)
 	TimeScale: number, -- hitstop and slow-mo multiplier on dt this frame
 }
 

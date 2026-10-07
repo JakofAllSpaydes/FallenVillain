@@ -34,10 +34,16 @@ World content (the disc, altar and later the town) is built in Studio and lives 
 | Mouse | Look | Look; glide turns toward where you look |
 | WASD | Walk | Glide: W/S pitch, A/D turn |
 | Space tap | Hop | Dive |
-| Space hold | Charge a Burst (higher the longer you hold) | Dive at the crosshair; release to swoop |
-| Hold left click, release | Punch; rocket jump with the crosshair on the ground | Rocket jump near a surface, else dash at the crosshair |
+| Space hold | Under 1 s: a higher hop. Past 1 s: charge a Burst (higher the longer you hold) | Dive at the crosshair; release to swoop. Also pre-charges the next hop |
+| Hold left click, release | Punch: a lunge that lifts into a hop; aimed steeply at the ground, a rocket jump | Punch: turns all your speed toward the crosshair and adds to it; aimed steeply at a surface, a rocket jump |
 
-Movement tech (bunny hop, dive-slide, swoop skim, rocket jump, jump punch) is described in [SPEC §15](docs/SPEC.md#15-decisions-made-during-implementation).
+Both charges have no time limit and step up in tiers, shown by rings above your head (Space) and beside the crosshair (LMB). In the air, speed never drops on its own: dives keep accelerating and punches add to whatever speed you have. Walls and the ground bounce you.
+
+Movement tech (bunny hop, pre-charge, dive bounce, dive boost, swoop skim and slide, rocket jump, jump punch) is described in [SPEC §15](docs/SPEC.md#15-decisions-made-during-implementation).
+
+## Status
+
+Milestones 1 (movement core) and 2 (burst and arc) are done. Next is milestone 3, a polish pass on movement and punching. The plan is in [SPEC §14](docs/SPEC.md#14-build-plan-for-claude-code), and every change made in review is in §15.
 
 ## Studio test tools
 

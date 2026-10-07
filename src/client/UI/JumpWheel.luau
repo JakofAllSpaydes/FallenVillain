@@ -1,7 +1,7 @@
 --!strict
--- Jump charge rings above the character's head. The inner ring fills with the hop charge while Space is held
--- (full at Hop.HoldTime). Once Charging starts, the outer ring fills toward the highest Burst your Power
--- allows, stepping colour at each of Burst.Tiers. Both fade out on release.
+-- Jump charge rings above the character's head: the first ring is the hop charge (full at Hop.HoldTime, where
+-- Charging starts), then one ring per Burst tier, ending at each of Burst.Tiers and finally at the longest hold
+-- in Burst.HoldHeights. All gold once the Burst has reached your Power's ceiling. Fades out on release.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -9,7 +9,6 @@ local RunService = game:GetService("RunService")
 local Tuning = require(game:GetService("ReplicatedStorage").Shared.Tuning)
 local Controller = require(script.Parent.Parent.Movement.Controller)
 local JumpCheck = require(script.Parent.Parent.Movement.JumpCheck)
-local MathUtil = require(script.Parent.Parent.Movement.MathUtil)
 local Burst = require(script.Parent.Parent.Movement.States.Burst)
 local ChargeRings = require(script.Parent.ChargeRings)
 
@@ -17,6 +16,16 @@ local JumpWheel = {}
 
 local gui: BillboardGui
 local rings: ChargeRings.ChargeRings
+
+local function ringEnds(): { number }
+	local B = Tuning.Burst
+	local ends = { Tuning.Hop.HoldTime }
+	for _, tier in B.Tiers do
+		table.insert(ends, tier)
+	end
+	table.insert(ends, B.HoldHeights[#B.HoldHeights][1])
+	return ends
+end
 
 local function update(dt: number)
 	local ctx = Controller.ctx
@@ -30,13 +39,8 @@ local function update(dt: number)
 	gui.Enabled = true
 
 	local held = JumpCheck.held()
-	local inner = if held ~= nil and held >= Tuning.Hop.TapTime then JumpCheck.hopCharge() else nil
-	local outer = nil
-	if held ~= nil and ctx.State == "Charging" then
-		local ceiling = Burst.ceiling(ctx.Power)
-		outer = math.min(Burst.heightForHold(held), ceiling) / ceiling
-	end
-	rings:update(dt, inner, outer, MathUtil.tier(Tuning.Burst.Tiers, held or 0) + 1)
+	local maxed = held ~= nil and Burst.heightForHold(held) >= Burst.ceiling(ctx.Power)
+	rings:update(dt, held, ringEnds(), Tuning.Hop.TapTime, maxed)
 end
 
 function JumpWheel.start()
@@ -49,7 +53,7 @@ function JumpWheel.start()
 	gui.StudsOffset = Vector3.yAxis * U.JumpWheelHeight
 	gui.ResetOnSpawn = false
 	gui.Enabled = false
-	rings = ChargeRings.new(gui)
+	rings = ChargeRings.new(gui, #ringEnds())
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 	RunService.RenderStepped:Connect(update)
 end

@@ -1,7 +1,7 @@
 --!strict
 -- Swoop (spec §3, §4.7): releasing a fast dive pulls up in an arc. The velocity keeps its speed and rotates
 -- upward at PullUpRate until the climb reaches the lift target (LiftFraction of speed, capped at MaxLift);
--- after that forward speed bleeds and gravity takes over until the player settles into Glide.
+-- after that gravity takes over until the player settles into Glide. Speed is only traded for height, never bled.
 -- Re-pressing dive re-aims.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
@@ -52,7 +52,6 @@ function Swoop.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 	ctx.Heading = MathUtil.yawRight(ctx.Heading, S.YawRate * steer * dt)
 	ctx.Bank = MathUtil.approach(ctx.Bank, Tuning.Glide.BankMax * steer, Tuning.Glide.BankResponse, dt)
 
-	local bleed = (1 - S.BleedPerSecond) ^ dt
 	if pullingUp then
 		-- Read back so the ground or a wall takes speed away.
 		speed = math.min(speed, math.max(0, ctx.Velocity:Dot(pathDirection(ctx.Heading, pitch))))
@@ -65,11 +64,10 @@ function Swoop.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 		end
 		pitch = MathUtil.moveToward(pitch, targetPitch, S.PullUpRate * dt)
 		speed -= Tuning.Gravity.Swoop * math.sin(math.rad(pitch)) * dt
-		speed *= bleed
 		ctx.Velocity = pathDirection(ctx.Heading, pitch) * speed
 		pullingUp = pitch < targetPitch
 	else
-		local forward = math.max(0, MathUtil.flat(ctx.Velocity):Dot(ctx.Heading)) * bleed
+		local forward = math.max(0, MathUtil.flat(ctx.Velocity):Dot(ctx.Heading))
 		local vy = ctx.Velocity.Y - Tuning.Gravity.Swoop * dt
 		ctx.Velocity = ctx.Heading * forward + Vector3.yAxis * vy
 	end

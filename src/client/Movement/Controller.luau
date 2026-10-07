@@ -136,13 +136,19 @@ local function applyCeiling(ctx: Types.Ctx)
 	ctx.Velocity = v
 end
 
+-- Speed out of a surface for a hit at `speedIn` along its normal: restitution, capped so a hypersonic dive
+-- doesn't fire you into orbit. Speed along the surface is always kept.
+local function bounceOut(speedIn: number): number
+	return math.min(speedIn * Tuning.Physics.BounceRestitution, Tuning.Physics.MaxBounceSpeed)
+end
+
 -- Reflects the velocity off a surface with this normal if moving into it. Returns whether it bounced.
 local function reflect(ctx: Types.Ctx, normal: Vector3): boolean
 	local into = ctx.Velocity:Dot(normal)
 	if into >= 0 then
 		return false
 	end
-	ctx.Velocity -= normal * into * (1 + Tuning.Physics.BounceRestitution)
+	ctx.Velocity += normal * (-into + bounceOut(-into))
 	local flat = MathUtil.flat(ctx.Velocity)
 	if flat.Magnitude > 1 then
 		ctx.Heading = flat.Unit
@@ -249,10 +255,10 @@ local function step(dt: number)
 		return
 	end
 
-	Punch.decay(ctx, dt)
 	applyCeiling(ctx)
 	local bouncedAt = bounceOffWalls(ctx, dt)
 	if bouncedAt then
+		ctx.LookFollowAfter = ctx.Now + Tuning.Physics.BounceSteerPause
 		Controller.Bounced:Fire(bouncedAt)
 		-- A dive or swoop can't hold a reversed path; the bounce throws you back into a glide.
 		if ctx.State == "Dive" or ctx.State == "Swoop" then
@@ -266,7 +272,7 @@ local function step(dt: number)
 		local bounced = ctx.Velocity
 		local into = -bounced:Dot(ground.Normal)
 		if into >= Tuning.Physics.MinGroundBounceSpeed then
-			bounced += ground.Normal * into * (1 + Tuning.Physics.BounceRestitution)
+			bounced += ground.Normal * (into + bounceOut(into))
 			placeOnGround(ctx, ground.Position)
 			ctx.Velocity = bounced
 			Controller.Bounced:Fire(ground.Position)
@@ -358,9 +364,7 @@ local function attach(character: Model)
 		Power = persistentPower,
 		PunchHold = nil,
 		PunchReadyAt = 0,
-		PunchBoost = Vector3.zero,
-		PunchBoostRate = 0,
-		DiveBonus = 0,
+		LookFollowAfter = 0,
 		TimeScale = 1,
 	}
 	States.Grounded.enter(ctx, nil)

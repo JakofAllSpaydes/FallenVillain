@@ -4,13 +4,14 @@
 -- glide speed take a small cut. The lunge it adds follows Punch.HoldBoosts, from a tap's jab up to a minute's
 -- map-crossing launch, and crossing a Punch.Tiers threshold fires TierReached for feedback.
 -- Releasing always fires and cancels whatever you were doing (Charging, Burst, Glide...):
---   * dash: toward the crosshair. During a held dive it adds to the dive instead and keeps until it ends.
+--   * dash: inherits all your speed and turns it toward the crosshair, plus the lunge on top. During a held
+--     dive it re-aims the dive the same way.
 --     From the ground it always lifts off a little, so gravity carries it into a hop rather than a slide.
 --   * rocket jump (like TF2): aim steeply at a surface (at least Punch.RocketMinAngle below level) within Reach.
 --     It pushes you away along the opposite of the aim, plus a share of the lunge along your facing, so
 --     straight down pops you up and forward. Much stronger point blank, where it also bounces back the speed
 --     you were moving into the surface; from the ground (no momentum to reflect) it is weaker (GroundedMult).
--- The lunge decays fast after a tap and slowly after a long charge (Punch.decay).
+-- Momentum only ever grows in the air (spec §15): nothing a punch adds decays; only surfaces and landing take it.
 -- The controller calls `update` before the state runs; it returns the transition when the punch fires.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
@@ -36,28 +37,6 @@ end
 -- Speed multiplier while a punch is charging.
 function Punch.slow(ctx: Types.Ctx, mult: number): number
 	return if ctx.PunchHold ~= nil then mult else 1
-end
-
--- Each air frame, the speed a punch added dies off at a rate set by its charge. Only removes speed still going
--- the boost's way.
-function Punch.decay(ctx: Types.Ctx, dt: number)
-	local boost = ctx.PunchBoost
-	if boost.Magnitude < 0.5 then
-		ctx.PunchBoost = Vector3.zero
-		return
-	end
-	local keep = math.exp(-ctx.PunchBoostRate * dt)
-	local remove = boost * (1 - keep)
-	ctx.PunchBoost = boost * keep
-	local direction = remove.Unit
-	local along = math.max(0, ctx.Velocity:Dot(direction))
-	ctx.Velocity -= direction * math.min(remove.Magnitude, along)
-end
-
-local function setBoost(ctx: Types.Ctx, added: Vector3, charge: number)
-	local P = Tuning.Punch
-	ctx.PunchBoost = added
-	ctx.PunchBoostRate = P.DashDecayTap + (P.DashDecayFull - P.DashDecayTap) * charge
 end
 
 local function aimDirection(ctx: Types.Ctx): Vector3
@@ -104,36 +83,24 @@ local function release(ctx: Types.Ctx, hold: number, grounded: boolean): (Types.
 		-- The forward lunge still happens, along your facing; the bounce rides on top of it.
 		local forward = MathUtil.flat(ctx.LookDirection)
 		local added = if forward.Magnitude > 1e-3 then forward.Unit * boost * P.RocketForwardShare else Vector3.zero
-		setBoost(ctx, added, charge)
 		ctx.Velocity = launch + added
 		Punch.Fired:Fire("Rocket", hold, at)
 		return "Hop", { Launch = true }
 	end
 
+	-- Inherit: all the speed you have turns toward the crosshair, and the lunge adds on top.
 	local direction = aimDirection(ctx)
-	if ctx.State == "Dive" and ctx.Input.JumpHeld then
-		-- The lunge adds to the dive and stays until it ends; stacking taps is capped, one big punch never is.
-		local target = math.max(math.min(ctx.DiveBonus + boost, P.MaxDiveBonus), boost)
-		local added = math.max(0, target - ctx.DiveBonus)
-		ctx.Velocity += direction * added
-		ctx.DiveBonus += added
-		Punch.Fired:Fire("Dash", hold, ctx.Root.Position)
-		return nil
-	end
-
-	-- Keep the speed already going this way, trim the rest, then add the lunge.
-	local along = math.max(0, ctx.Velocity:Dot(direction))
-	local across = ctx.Velocity - direction * ctx.Velocity:Dot(direction)
-	local velocity = direction * (along + boost) + across * P.DashKeepSideways
-	local added = direction * boost
+	local velocity = direction * (ctx.Velocity.Magnitude + boost)
+	ctx.Velocity = velocity
 	Punch.Fired:Fire("Dash", hold, ctx.Root.Position)
+	if ctx.State == "Dive" and ctx.Input.JumpHeld then
+		-- Re-enter the dive so it heads the new way with the whole speed.
+		return "Dive", nil
+	end
 	if not grounded then
-		setBoost(ctx, added, charge)
-		ctx.Velocity = velocity
 		return "Glide", nil
 	end
-	-- From the ground only the horizontal lunge decays; the lift is left to gravity.
-	setBoost(ctx, MathUtil.flat(added), charge)
+	-- From the ground it always lifts off a little, so gravity carries it into a hop.
 	ctx.Velocity = MathUtil.flat(velocity) + Vector3.yAxis * math.max(velocity.Y, P.GroundDashLift)
 	return "Hop", { Launch = true }
 end

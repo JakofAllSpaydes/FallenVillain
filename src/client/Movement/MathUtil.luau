@@ -138,7 +138,8 @@ end
 -- The camera never follows the heading, so this converges instead of feeding back on itself.
 function MathUtil.steerInput(ctx: Types.Ctx): number
 	local x = ctx.Input.Move.X
-	if math.abs(x) > 0.01 or Tuning.Glide.LookFollowWeight <= 0 then
+	-- Just after a bounce, don't steer back toward the look, or a glide turns straight back into the wall.
+	if math.abs(x) > 0.01 or Tuning.Glide.LookFollowWeight <= 0 or ctx.Now < ctx.LookFollowAfter then
 		return math.clamp(x, -1, 1)
 	end
 	local angle = MathUtil.signedYaw(ctx.Heading, ctx.LookDirection)
