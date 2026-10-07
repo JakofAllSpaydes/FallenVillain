@@ -275,7 +275,6 @@ local function attach(character: Model)
 		LastLandTime = -math.huge,
 		LandVelocity = Vector3.zero,
 		SwoopReadyAt = 0,
-		FlapReadyAt = 0,
 		FallPeak = 0,
 	}
 	States.Grounded.enter(ctx, nil)

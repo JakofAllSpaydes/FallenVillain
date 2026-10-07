@@ -38,11 +38,6 @@ function Glide.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 	end
 
 	local vy = ctx.Velocity.Y
-	if ctx.Input.JumpPressed and ctx.Now >= ctx.FlapReadyAt and ctx.GlideEnergy >= Tuning.Flap.EnergyCost then
-		vy = math.max(vy, 0) + Tuning.Flap.Lift
-		ctx.GlideEnergy -= Tuning.Flap.EnergyCost
-		ctx.FlapReadyAt = ctx.Now + Tuning.Flap.Cooldown
-	end
 
 	local moveZ = ctx.Input.Move.Z
 	local pitchTarget = if moveZ < 0 then T.PitchMin * -moveZ else T.PitchMax * moveZ

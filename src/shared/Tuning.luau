@@ -34,12 +34,6 @@ local Tuning = {
 		AirControlAccel = 90,
 	},
 
-	Flap = {
-		Lift = 20,
-		EnergyCost = 8,
-		Cooldown = 0.35,
-	},
-
 	Charging = {
 		CancelThreshold = 0.4,
 	},

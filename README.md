@@ -33,7 +33,7 @@ World content (the disc, altar and later the town) is built in Studio and lives 
 | --- | --- | --- |
 | Mouse | Look | Look; glide turns toward where you look |
 | WASD | Walk | Glide: W/S pitch, A/D turn |
-| Space | Hop (hold for higher) | Flap while gliding |
+| Space | Hop (hold for higher) | — |
 | Hold left click | Ground smash | Dive at the crosshair; release to swoop |
 
 Movement tech (bunny hop, dive-slide, tap boost, swoop skim) is described in [SPEC §15](docs/SPEC.md#15-decisions-made-during-implementation).

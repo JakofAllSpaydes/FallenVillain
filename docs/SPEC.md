@@ -560,6 +560,8 @@ Changes to the spec above, agreed during milestone reviews. Where this section a
 
 **Air-gain ceiling** (§3, 25% of the fall's peak) rounds climbs off with `Physics.CeilingDecel` instead of zeroing vertical speed.
 
+**No flapping.** The glide is a glider, not wings: once airborne you only ever come down (apart from swoops and, later, thermals). The §3 "Space tap in air: Flap" input and its glide-energy cost are removed.
+
 **Glide overspeed** above `Glide.ForwardSpeed` bleeds slowly (`Glide.OverspeedBleed`) unless the player pitches up, so boosts and chains carry.
 
 **Movement tech** (hidden, from timing the existing inputs; total carried speed capped at `Tech.MaxCarrySpeed`):
@@ -584,7 +586,7 @@ They chain: dive → skim → slide → hop → tap → dive. **Open for milesto
 Notes from the milestone 1 review, to settle and build before the Charging/Burst work:
 
 - **Remove the tap boost.** Tapping LMB for speed feels wrong. The boost moves to the punch charge (below).
-- **Split dive and punch.** In the air, **Space** dives (today Space flaps and LMB dives). **LMB** becomes a punch. This changes the §3 input table and the onboarding hints in §8, so confirm the full input map before building.
+- **Split dive and punch.** In the air, **Space** dives (today LMB dives; Space does nothing in the air since flapping was removed). **LMB** becomes a punch. This changes the §3 input table and the onboarding hints in §8, so confirm the full input map before building.
 - **Punch charge is the boost.** Holding LMB charges the punch; that charge replaces the tap boost.
 - **Rocket jump.** Punching the ground launches you, and cancelling a punch with a jump is a candidate for another trick. Design these with the punch.
 - Update the controls HUD (`ControlsHud.luau`) and the tricks list in this section to match.

@@ -54,7 +54,6 @@ export type Ctx = {
 	LastLandTime: number,
 	LandVelocity: Vector3, -- horizontal velocity at the last touchdown; chain hops keep it
 	SwoopReadyAt: number,
-	FlapReadyAt: number,
 	FallPeak: number, -- highest altitude this fall; caps air gain
 }
 
