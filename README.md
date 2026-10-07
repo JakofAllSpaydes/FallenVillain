@@ -34,12 +34,12 @@ World content (the disc, altar and later the town) is built in Studio and lives 
 | Mouse | Look | Look; glide turns toward where you look |
 | WASD | Walk | Glide: W/S pitch, A/D turn |
 | Space tap | Hop | Dive |
-| Space hold | Charge a Burst (charge full) or a higher hop | Dive at the crosshair; release to swoop |
+| Space hold | Charge a Burst (higher the longer you hold) | Dive at the crosshair; release to swoop |
 | Hold left click, release | Punch; rocket jump with the crosshair on the ground | Rocket jump near a surface, else dash at the crosshair |
 
 Movement tech (bunny hop, dive-slide, swoop skim, rocket jump, jump punch) is described in [SPEC §15](docs/SPEC.md#15-decisions-made-during-implementation).
 
 ## Studio test tools
 
-- **F2**: tuning panel. Every value in `Tuning.luau` as a slider; "Print changes" writes edited values to Output for pasting back; buttons drop you from 300/1,000/3,000 studs, refill the Burst charge, and set Power.
+- **F2**: tuning panel. Every value in `Tuning.luau` as a slider; "Print changes" writes edited values to Output for pasting back; buttons drop you from 300/1,000/3,000 studs and set Power.
 - **F3**: hides or shows the controls and tech cheat sheet (bottom-left). It shows in every build, including published test places, while `Dev.ShowControlsHud` is on; in Studio it adds a live state/speed/height/energy readout.

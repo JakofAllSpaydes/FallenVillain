@@ -587,12 +587,12 @@ They chain: dive → skim → slide → hop → dive. (The milestone 1 tap boost
 | Input | On ground | In air |
 | --- | --- | --- |
 | Space tap | Hop (fires on release, within `Hop.TapTime`) | Dive (a tap dives for `Dive.MinHoldTime`) |
-| Space hold | Charge a Burst if the charge is full, else a charged hop | Dive; release to swoop |
+| Space hold | Charge a Burst, always; it stops you dead and grows with the hold | Dive; release to swoop |
 | LMB hold, release | Punch (rocket jump with a surface under the crosshair in reach) | Punch: rocket jump near a surface, else a dash at the crosshair |
 | RMB | Cutter (milestone 4) | Laser (milestone 4) |
 | WASD, mouse | Walk, look | Steer, look |
 
-Space is a tap-or-hold check on the ground, so a standing hop waits for the release (at most `Hop.TapTime`). Inside the chain window after a landing, Space still hops on press. The §3 ground smash is gone; the ground punch replaces it. You can't hop in the air. Mobile keeps its own layout (milestone 7).
+Space is a tap-or-hold check in every ground state (Grounded, Landing, Slide; `Movement/JumpCheck.luau`), so a hop waits for the release (at most `Hop.TapTime`). A chain hop is judged by the press time. Holding past `Hop.TapTime` always enters Charging and zeroes your velocity: charging a Burst deliberately breaks the movement chain. The Â§3 charged hop is gone. The §3 ground smash is gone; the ground punch replaces it. You can't hop in the air. Mobile keeps its own layout (milestone 7).
 
 **Punch** (`Movement/Punch.luau`). Holding LMB charges for `Punch.ChargeTime` in any state and never locks movement: you can still hop, dive or charge a Burst. While it charges, walk, hop and glide speed take a small cut (`Punch.Charge*Mult`). On release:
 
@@ -602,7 +602,9 @@ Space is a tap-or-hold check on the ground, so a standing hop waits for the rele
 
 **Tricks added**: rocket jump, and jump punch (hop or dive while a punch charges, release near the ground).
 
-**Burst and Hang.** `Hang.Time` is one value (the 2–6 s spread belonged to the cut Hang stat). Burst drift after `Burst.NoSteerTime` is a small fixed speed (`Burst.DriftSpeed`). Burst is exempt from the air-gain ceiling, and Hang starts the fall's ceiling at the apex. Power and a full charge are set from the F2 panel until the economy exists.
+**Burst and Hang.** `Hang.Time` is one value (the 2–6 s spread belonged to the cut Hang stat). Burst drift after `Burst.NoSteerTime` is a small fixed speed (`Burst.DriftSpeed`). Burst is exempt from the air-gain ceiling, and Hang starts the fall's ceiling at the apex. **Burst strength follows the hold** (review note: the all-or-nothing meter felt too stepwise). The share of a full Burst grows from `Burst.MinCharge` at `Charging.CancelThreshold` to 1 at `Burst.ChargeTime`, and velocity is `full Ã share ^ Burst.ChargeCurve`, so height tracks the hold. The Â§3 Burst charge meter and its sources (idle, hop, destruction, rings, thermals, impact) are removed; Power alone sets the ceiling. FeelTable entries marked `byCharge` (flash, shockwave, column, recoil, shake, FOV kick, blur, debris, dust) scale with the share. Power is set from the F2 panel until the economy exists.
+
+**Punch charge wheel** (`UI/PunchWheel.luau`): a ring beside the crosshair fills clockwise over `Punch.ChargeTime`, turns gold when full and fades on release.
 
 **FeelTable lives in `Tuning.Feel`**, so every effect value is also a live F2 slider. `Feel/Juice.luau` routes entries to `CameraEffects`, `Post`, `Audio`, `Vfx` and the altitude readout; every sink is a set of additive layers (`Feel/Layers.luau`). Events are the state entered, `Exit<State>`, `ChargeCancel`, the punch results and `RemoteBurst`.
 

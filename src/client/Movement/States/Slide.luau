@@ -1,11 +1,12 @@
 --!strict
 -- Dive-slide (movement tech): touching down from Dive or Swoop at a shallow angle and speed keeps the momentum
--- as a ground slide instead of stopping. Friction bleeds it; hopping out keeps it (and inside the chain window
--- it counts as a perfect hop). Slides off a ledge into Glide; settles into Grounded when slow.
+-- as a ground slide instead of stopping. Friction bleeds it; hopping out keeps it (inside the chain window
+-- it counts as a perfect hop); holding Space stops the slide and charges a Burst. Slides off a ledge into Glide; settles into Grounded when slow.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
+local JumpCheck = require(script.Parent.Parent.JumpCheck)
 local MathUtil = require(script.Parent.Parent.MathUtil)
 
 local Slide = { Air = true, SkipTouchdown = true, Punch = "Ground" }
@@ -25,13 +26,15 @@ end
 
 function Slide.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 	local T = Tuning.Tech
-	if ctx.Input.JumpPressed then
-		return "Hop", nil
+	local jump, jumpPayload = JumpCheck.update(ctx)
+	if jump then
+		return jump, jumpPayload
 	end
 
 	local probe = -Vector3.yAxis * (ctx.StandHeight + T.SlideGroundProbe)
 	local ground = workspace:Raycast(ctx.Root.Position, probe, ctx.RaycastParams)
 	if not ground then
+		JumpCheck.reset()
 		return "Glide", nil
 	end
 

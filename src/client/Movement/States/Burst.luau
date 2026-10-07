@@ -1,5 +1,5 @@
 --!strict
--- Burst (spec §3, §4.2–4.3): straight up at a velocity set by Power. No gravity for the ignition, then Burst
+-- Burst (spec §3, §4.2–4.3): straight up at a velocity set by Power and how long the charge was held. No gravity for the ignition, then Burst
 -- gravity. No steering at first, then a slow drift. Hands over to Hang once the climb has nearly stopped.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
@@ -9,24 +9,27 @@ local MathUtil = require(script.Parent.Parent.MathUtil)
 
 local Burst = { Air = true }
 
-function Burst.velocity(power: number): number
+-- `charge` is the share of a full Burst (0–1). Velocity follows charge ^ ChargeCurve; at 0.5 the height grows
+-- roughly in step with the charge.
+function Burst.velocity(power: number, charge: number): number
 	local B = Tuning.Burst
-	return math.min(B.BaseVelocity + B.VelocityPerPower * (power - 1), B.MaxVelocity)
+	local full = math.min(B.BaseVelocity + B.VelocityPerPower * (power - 1), B.MaxVelocity)
+	return full * math.clamp(charge, 0, 1) ^ B.ChargeCurve
 end
 
 -- Seconds from ignition to apex and the altitude gained, for effects that scale with the ascent.
-function Burst.predict(power: number): (number, number)
+function Burst.predict(power: number, charge: number): (number, number)
 	local B = Tuning.Burst
-	local v = Burst.velocity(power)
+	local v = Burst.velocity(power, charge)
 	local g = math.max(Tuning.Gravity.Burst, 1e-3)
 	return B.IgnitionTime + v / g, v * B.IgnitionTime + v * v / (2 * g)
 end
 
-function Burst.enter(ctx: Types.Ctx, _payload: any)
-	local _, gain = Burst.predict(ctx.Power)
-	ctx.Velocity = Vector3.yAxis * Burst.velocity(ctx.Power)
+function Burst.enter(ctx: Types.Ctx, payload: any)
+	ctx.BurstCharge = if payload ~= nil and payload.Charge then payload.Charge else 1
+	local _, gain = Burst.predict(ctx.Power, ctx.BurstCharge)
+	ctx.Velocity = Vector3.yAxis * Burst.velocity(ctx.Power, ctx.BurstCharge)
 	ctx.FallPeak = ctx.Altitude + gain
-	ctx.Charge = 0
 	ctx.BodyDirection = Vector3.yAxis
 	ctx.Bank = 0
 end

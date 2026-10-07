@@ -23,14 +23,11 @@ local Tuning = {
 
 	Hop = {
 		Height = 60,
-		ChargedHeight = 120,
-		TapTime = 0.15, -- on the ground, Space released sooner is a hop; held longer charges (a Burst if full)
-		ChargeTime = 0.4, -- extra hold past TapTime to reach ChargedHeight when the Burst charge isn't full
+		TapTime = 0.15, -- on the ground, Space released sooner is a hop; held longer always charges a Burst
 		ApexFloatTime = 0.35,
 		ChainWindow = 0.2,
 		ChainBonus = 0.1,
 		MaxChain = 3,
-		BurstChargeGain = 0.04,
 		AirControlSpeed = 30,
 		AirControlAccel = 90,
 	},
@@ -61,6 +58,9 @@ local Tuning = {
 		BaseVelocity = 350,
 		VelocityPerPower = 45,
 		MaxVelocity = 1400,
+		ChargeTime = 1.5, -- hold from the press for a full Burst; Feel.Charging ramps match it
+		MinCharge = 0.1, -- share of a full Burst at Charging.CancelThreshold
+		ChargeCurve = 0.5, -- velocity = full × charge ^ ChargeCurve; 0.5 makes height track the charge
 		IgnitionTime = 0.3,
 		NoSteerTime = 0.5,
 		DriftSpeed = 15,
@@ -153,14 +153,6 @@ local Tuning = {
 		CutterDps = 25,
 		SweepSampleSpacing = 4,
 		HitBatchInterval = 0.1,
-	},
-
-	Charge = {
-		IdlePerSecond = 0.012,
-		PerDestroyed = 0.02,
-		PerRing = 0.12,
-		PerThermal = 0.06,
-		ImpactMax = 0.15,
 	},
 
 	Combo = {
@@ -300,7 +292,8 @@ local Tuning = {
 			{ vfx = "ChargeBeam", to = 0, dur = 0.3 },
 		},
 
-		-- §4.2 ignition and §4.3 ascent. Freeze and silence first, then the cannon shot.
+		-- §4.2 ignition and §4.3 ascent. Freeze and silence first, then the cannon shot. byCharge entries scale
+		-- with how long the Burst was charged.
 		Burst = {
 			{ time = 0.15, dur = 0.12 },
 			{ bus = "Ambient", to = 1, dur = 0 },
@@ -310,10 +303,10 @@ local Tuning = {
 			{ bus = "Wind", to = 0, dur = 0.05, delay = 0.12 },
 			{ bus = "Music", to = 0, dur = 0.3, delay = 0.12 },
 			{ sound = "SubHit" },
-			{ post = "Flash", kick = 0.9, dur = 0.25 },
-			{ spawn = "Shockwave", radius = 60, alpha = 0.8, dur = 0.6 },
-			{ spawn = "Debris", count = 24, speedMin = 40, speedMax = 80, upBias = 0.5, life = 2 },
-			{ spawn = "LightColumn", height = 3000, width = 4, alpha = 0.7, dur = 3 },
+			{ post = "Flash", kick = 0.9, dur = 0.25, byCharge = true },
+			{ spawn = "Shockwave", radius = 60, alpha = 0.8, dur = 0.6, byCharge = true },
+			{ spawn = "Debris", count = 24, speedMin = 40, speedMax = 80, upBias = 0.5, life = 2, byCharge = true },
+			{ spawn = "LightColumn", height = 3000, width = 4, alpha = 0.7, dur = 3, byCharge = true },
 			{ vfx = "CrackRadius", to = 0, dur = 0 },
 			{ vfx = "ChargeBeam", to = 0, dur = 0 },
 			{ vfx = "ChestLight", to = 0, dur = 0.3 },
@@ -323,14 +316,14 @@ local Tuning = {
 			{ post = "Saturation", to = 0, dur = 0.4 },
 			{ post = "Contrast", to = 0, dur = 0.4 },
 			{ post = "Vignette", to = 0, dur = 0.4 },
-			{ cam = "recoilDown", kick = 2, dur = 0.3, delay = 0.033 },
-			{ cam = "recoilBack", kick = 3, dur = 0.3, delay = 0.033 },
-			{ cam = "shake", kick = 1.2, freq = 35, dur = 0.6, delay = 0.033 },
-			{ cam = "fovOffset", to = 35, dur = 0.15, delay = 0.033 },
-			{ post = "Blur", to = 12, dur = 0.1, delay = 0.033 },
+			{ cam = "recoilDown", kick = 2, dur = 0.3, delay = 0.033, byCharge = true },
+			{ cam = "recoilBack", kick = 3, dur = 0.3, delay = 0.033, byCharge = true },
+			{ cam = "shake", kick = 1.2, freq = 35, dur = 0.6, delay = 0.033, byCharge = true },
+			{ cam = "fovOffset", to = 35, dur = 0.15, delay = 0.033, byCharge = true },
+			{ post = "Blur", to = 12, dur = 0.1, delay = 0.033, byCharge = true },
 			{ post = "Blur", to = 0, dur = 0.4, delay = 0.2 },
 			{ sound = "BurstCrack", delay = 0.066 },
-			{ spawn = "Dust", count = 200, delay = 0.066 },
+			{ spawn = "Dust", count = 200, delay = 0.066, byCharge = true },
 			{ loop = "Wind", to = 1, dur = 0.05, delay = 0.133 },
 			{ vfx = "Trails", to = 1, dur = 0 },
 			-- Ascent: FOV 105 → 85, camera pulls back 12 → 20 and tilts up, wind thins.
@@ -398,7 +391,7 @@ local Tuning = {
 		ApexBell = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Sfx", Volume = 0.6, Pitch = 1.5 },
 		HangChime = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Sfx", Volume = 0.5, Pitch = 2 },
 		WingFold = { Id = "rbxasset://sounds/action_get_up.mp3", Bus = "Sfx", Volume = 0.5, Pitch = 0.7 },
-		RocketPop = { Id = "rbxasset://sounds/impact_explosion_03.mp3", Bus = "Sfx", Volume = 0.4, Pitch = 1.8 },
+		RocketPop = { Id = "rbxasset://sounds/action_jump_land.mp3", Bus = "Sfx", Volume = 0.5, Pitch = 0.8 },
 		Dash = { Id = "rbxasset://sounds/action_jump.mp3", Bus = "Sfx", Volume = 0.6, Pitch = 1.4 },
 	},
 
@@ -451,6 +444,11 @@ local Tuning = {
 		AltitudeTop = 48,
 		AltitudeAlpha = 0.5,
 		RecordPulseTime = 1,
+		PunchWheelSize = 34,
+		PunchWheelOffset = 32, -- pixels right of and below the crosshair
+		PunchWheelThickness = 4,
+		PunchWheelTrackTransparency = 0.75,
+		PunchWheelFade = 0.2,
 	},
 
 	Dev = {

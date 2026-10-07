@@ -37,7 +37,6 @@ local Controller = {}
 Controller.StateChanged = Signal.new() :: Signal.Signal<Types.MovementState, Types.MovementState, any>
 Controller.ctx = nil :: Types.Ctx?
 
-local persistentCharge = 1
 local persistentPower = 1
 local appliedScale = 1 -- time scale the last velocity handed to physics was multiplied by
 
@@ -195,7 +194,6 @@ local function step(dt: number)
 	end
 	ctx.Altitude = ctx.Root.Position.Y - Planet.SurfaceY
 	ctx.StateTime += dt
-	ctx.Charge = math.min(1, ctx.Charge + Tuning.Charge.IdlePerSecond * dt)
 
 	if ctx.Altitude < -Tuning.World.FallOffDepth then
 		respawnAtAltar(ctx)
@@ -292,7 +290,7 @@ local function attach(character: Model)
 		Bank = 0,
 
 		GlideEnergy = Tuning.GlideEnergy.Max,
-		Charge = persistentCharge,
+		BurstCharge = 1,
 		HopChain = 0,
 		LastLandTime = -math.huge,
 		LandVelocity = Vector3.zero,
@@ -307,7 +305,6 @@ local function attach(character: Model)
 	Controller.ctx = ctx
 
 	humanoid.Died:Connect(function()
-		persistentCharge = ctx.Charge
 		persistentPower = ctx.Power
 		if Controller.ctx == ctx then
 			Controller.ctx = nil
@@ -330,18 +327,11 @@ function Controller.drop(altitude: number)
 	transition(ctx, "Glide", nil)
 end
 
--- Dev panel hooks: set the Power level and refill the Burst charge.
+-- Dev panel hook: set the Power level.
 function Controller.setPower(power: number)
 	persistentPower = power
 	if Controller.ctx then
 		Controller.ctx.Power = power
-	end
-end
-
-function Controller.fillCharge()
-	persistentCharge = 1
-	if Controller.ctx then
-		Controller.ctx.Charge = 1
 	end
 end
 

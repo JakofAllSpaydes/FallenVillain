@@ -9,6 +9,7 @@
 --   to / from / kick   the value (tween target, start, or one-shot amount)
 --   dur                seconds; durAscent = fraction of this Burst's ascent time instead
 --   delay              seconds; atApex = seconds relative to the predicted apex instead (negative = before)
+-- byCharge = true scales the amounts (to, kick, radius, count, height) by the last Burst charge.
 -- Delayed entries from a state's event are skipped if that state has already ended.
 
 local Tuning = require(game:GetService("ReplicatedStorage").Shared.Tuning)
@@ -29,8 +30,27 @@ type Entry = { [string]: any }
 
 local function ascentTime(): number
 	local ctx = Controller.ctx
-	local time = BurstState.predict(if ctx then ctx.Power else 1)
+	local time = BurstState.predict(if ctx then ctx.Power else 1, if ctx then ctx.BurstCharge else 1)
 	return time
+end
+
+local SCALED_BY_CHARGE = { "to", "kick", "radius", "count", "height" }
+
+local function scaledByCharge(entry: Entry): Entry
+	local ctx = Controller.ctx
+	if not entry.byCharge or not ctx then
+		return entry
+	end
+	local scaled = table.clone(entry)
+	for _, key in SCALED_BY_CHARGE do
+		if type(scaled[key]) == "number" then
+			scaled[key] *= ctx.BurstCharge
+		end
+	end
+	if scaled.count then
+		scaled.count = math.max(1, math.round(scaled.count))
+	end
+	return scaled
 end
 
 local function run(entry: Entry, duration: number, position: Vector3?)
@@ -68,7 +88,8 @@ function Juice.fire(event: string, position: Vector3?, whileState: string?)
 		return
 	end
 	local ascent = ascentTime()
-	for _, entry: Entry in entries do
+	for _, raw: Entry in entries do
+		local entry = scaledByCharge(raw)
 		local duration = entry.dur or (if entry.durAscent then entry.durAscent * ascent else 0)
 		local delay = entry.delay or (if entry.atApex then ascent + entry.atApex else 0)
 		if delay <= 0 then

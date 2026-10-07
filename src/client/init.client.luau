@@ -11,6 +11,7 @@ local Controller = require(script.Movement.Controller)
 local GroundShadow = require(script.World.GroundShadow)
 local Juice = require(script.Feel.Juice)
 local Post = require(script.Feel.Post)
+local PunchWheel = require(script.UI.PunchWheel)
 local RemotePlayers = require(script.World.RemotePlayers)
 local Vfx = require(script.Feel.Vfx)
 local ControlsHud = require(script.UI.ControlsHud)
@@ -26,6 +27,7 @@ Audio.start()
 Post.start()
 Vfx.start()
 AltitudeReadout.start()
+PunchWheel.start()
 Juice.start()
 AtmosphereDriver.start()
 RemotePlayers.start()
@@ -39,10 +41,6 @@ for _, altitude in Tuning.Dev.DropAltitudes do
 		end,
 	})
 end
-table.insert(actions, {
-	Label = "Full charge",
-	Run = Controller.fillCharge,
-})
 for _, power in Tuning.Dev.PowerPresets do
 	table.insert(actions, {
 		Label = `Power {power}`,

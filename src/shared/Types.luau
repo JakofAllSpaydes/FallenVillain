@@ -49,7 +49,7 @@ export type Ctx = {
 	Bank: number, -- degrees, positive = roll right
 
 	GlideEnergy: number,
-	Charge: number,
+	BurstCharge: number, -- share of a full Burst the last charge reached (0–1)
 	HopChain: number,
 	LastLandTime: number,
 	LandVelocity: Vector3, -- horizontal velocity at the last touchdown; chain hops keep it

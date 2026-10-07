@@ -1,5 +1,5 @@
 --!strict
--- Hop (spec §3, §4.9): fires when Grounded's tap-or-hold check resolves (or instantly on a chain hop), rises to
+-- Hop (spec §3, §4.9): fires when the ground tap-or-hold check (JumpCheck) resolves to a tap, rises to
 -- its height, then a short low-gravity float before handing off to Glide. Space in the air dives.
 -- A punch rocket jump also enters here with the launch velocity already set.
 
@@ -20,17 +20,15 @@ local function launch(ctx: Types.Ctx)
 	ctx.FallPeak = ctx.Altitude + vy * vy / (2 * Tuning.Gravity.Hop)
 end
 
-local function hop(ctx: Types.Ctx, charge: number)
+local function hop(ctx: Types.Ctx, pressedAt: number)
 	local T = Tuning.Hop
-	if ctx.Now - ctx.LastLandTime <= T.ChainWindow then
+	if pressedAt - ctx.LastLandTime <= T.ChainWindow then
 		ctx.HopChain = math.min(ctx.HopChain + 1, T.MaxChain)
 	else
 		ctx.HopChain = 0
 	end
 	local chainMult = 1 + T.ChainBonus * ctx.HopChain
-	local height = (T.Height + (T.ChargedHeight - T.Height) * charge)
-		* chainMult
-		* Punch.slow(ctx, Tuning.Punch.ChargeHopMult)
+	local height = T.Height * chainMult * Punch.slow(ctx, Tuning.Punch.ChargeHopMult)
 
 	-- Perfect bunny hop: a chain hop keeps the speed you landed with (or are sliding with) plus a bonus,
 	-- so a good rhythm builds speed. Capped by Tech.MaxCarrySpeed.
@@ -44,14 +42,13 @@ local function hop(ctx: Types.Ctx, charge: number)
 	end
 	ctx.Velocity = horizontal + Vector3.yAxis * math.sqrt(2 * Tuning.Gravity.Hop * height)
 	ctx.FallPeak = ctx.Altitude + height
-	ctx.Charge = math.min(1, ctx.Charge + T.BurstChargeGain)
 end
 
 function Hop.enter(ctx: Types.Ctx, payload: any)
 	if payload ~= nil and payload.Launch then
 		launch(ctx)
 	else
-		hop(ctx, if payload ~= nil and payload.Charge then payload.Charge else 0)
+		hop(ctx, if payload ~= nil and payload.PressedAt then payload.PressedAt else ctx.Now)
 	end
 	floating = false
 	floatTime = 0
