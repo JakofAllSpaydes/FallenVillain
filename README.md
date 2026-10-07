@@ -47,7 +47,9 @@ Movement tech (bunny hop, pre-charge, dive slide, dive boost, swoop skim, rocket
 
 ## Status
 
-Milestones 1 (movement core), 2 (burst and arc) and 3a (the globe) are done. Next is milestone 3b, the polish pass on movement and punching. The plan is in [SPEC §14](docs/SPEC.md#14-build-plan-for-claude-code), and every change made in review is in §15.
+Milestones 1 (movement core), 2 (burst and arc) and 3a (the globe) are done. Milestone 3b, the polish pass, is in progress: character animation (stock Roblox clips plus FALL poses: jump-charge squat, punch wind-back, dive, swoop, hang, slide), a camera that zooms in as either charge builds, speed-driven FOV, shake, speed lines and heat, speed-scaled touchdown impacts (hitstop, flash, rings, crater, debris, dust wall) and an aesthetics pass with the game's own VFX textures. The plan is in [SPEC §14](docs/SPEC.md#14-build-plan-for-claude-code), and every change made in review is in §15.
+
+Animation targets R15 with R6 fallbacks. VFX textures (vignette, glow, ring, cracks, speed lines, streak) are uploaded image assets referenced from `Tuning.Vfx`; sounds are still engine placeholders.
 
 ## Studio test tools
 

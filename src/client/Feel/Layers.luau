@@ -6,8 +6,35 @@
 local Layers = {}
 Layers.__index = Layers
 
-type Kick = { Amount: number, Start: number, Duration: number }
+-- Kick curves (value over 0–1 progress, from 1 to 0):
+--   quad    (1 − p)²            the default: quick start, soft tail
+--   expo    e^(−6p) shaped      snappier: most of the hit in the first frames, a long faint tail
+--   spring  damped cosine       overshoots once past zero and settles, for recoil that springs back
+--   hold    flat then quad      full strength for the first third, then decays
+export type Curve = "quad" | "expo" | "spring" | "hold"
+
+type Kick = { Amount: number, Start: number, Duration: number, Curve: Curve }
 type Layer = { From: number, To: number, Start: number, Duration: number, Kicks: { Kick } }
+
+local EXPO_RATE = 6
+local SPRING_CYCLES = 1.25
+local SPRING_DECAY = 4.5
+local HOLD_SHARE = 0.33
+
+local function curve(kind: Curve, p: number): number
+	if kind == "expo" then
+		return (math.exp(-EXPO_RATE * p) - math.exp(-EXPO_RATE)) / (1 - math.exp(-EXPO_RATE))
+	elseif kind == "spring" then
+		return math.exp(-SPRING_DECAY * p) * math.cos(2 * math.pi * SPRING_CYCLES * p)
+	elseif kind == "hold" then
+		if p < HOLD_SHARE then
+			return 1
+		end
+		local q = (p - HOLD_SHARE) / (1 - HOLD_SHARE)
+		return (1 - q) ^ 2
+	end
+	return (1 - p) ^ 2
+end
 
 export type Set = typeof(setmetatable({} :: { Layers: { [string]: Layer } }, Layers))
 
@@ -47,15 +74,21 @@ function Layers.set(self: Set, name: string, to: number, duration: number, from:
 	layer.Duration = duration
 end
 
--- Add a one-shot that starts at `amount` and decays to zero over `duration` (Quad out).
-function Layers.kick(self: Set, name: string, amount: number, duration: number)
-	table.insert(find(self, name).Kicks, { Amount = amount, Start = os.clock(), Duration = math.max(duration, 1e-3) })
+-- Add a one-shot that starts at `amount` and decays to zero over `duration` along `kind` (default quad).
+function Layers.kick(self: Set, name: string, amount: number, duration: number, kind: Curve?)
+	table.insert(find(self, name).Kicks, {
+		Amount = amount,
+		Start = os.clock(),
+		Duration = math.max(duration, 1e-3),
+		Curve = kind or "quad",
+	})
 end
 
--- Apply a FeelTable entry to a layer: `kick` adds a one-shot, otherwise `to` (with optional `from`) tweens.
+-- Apply a FeelTable entry to a layer: `kick` adds a one-shot (with optional `curve`), otherwise `to` (with
+-- optional `from`) tweens.
 function Layers.apply(self: Set, name: string, entry: { [string]: any }, duration: number)
 	if entry.kick ~= nil then
-		self:kick(name, entry.kick, duration)
+		self:kick(name, entry.kick, duration, entry.curve)
 	elseif entry.to ~= nil then
 		self:set(name, entry.to, duration, entry.from)
 	end
@@ -71,7 +104,7 @@ function Layers.get(self: Set, name: string): number
 		if p >= 1 then
 			table.remove(layer.Kicks, index)
 		else
-			value += kick.Amount * (1 - p) ^ 2
+			value += kick.Amount * curve(kick.Curve, p)
 		end
 	end
 	return value

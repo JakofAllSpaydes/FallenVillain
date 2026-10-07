@@ -44,8 +44,8 @@ local Controller = {}
 -- (from, to, payload)
 Controller.StateChanged = Signal.new() :: Signal.Signal<Types.MovementState, Types.MovementState, any>
 Controller.ctx = nil :: Types.Ctx?
--- (position) whenever the bounce rule throws the player off a wall
-Controller.Bounced = Signal.new() :: Signal.Signal<Vector3>
+-- (position, speed before the bounce) whenever the bounce rule throws the player off a wall or the ground
+Controller.Bounced = Signal.new() :: Signal.Signal<Vector3, number>
 
 local persistentPower = 1
 local appliedScale = 1 -- time scale the last velocity handed to physics was multiplied by
@@ -294,11 +294,12 @@ local function step(dt: number)
 
 	applyCeiling(ctx)
 	if not state.NoBounce then
+		local speedBefore = ctx.Velocity.Magnitude
 		local bouncedAt = bounceOffWalls(ctx, dt)
 		if bouncedAt then
 			ctx.LookFollowAfter = ctx.Now + Tuning.Physics.BounceSteerPause
 			trace(ctx, "bounced off a wall")
-			Controller.Bounced:Fire(bouncedAt)
+			Controller.Bounced:Fire(bouncedAt, speedBefore)
 			-- A dive or swoop can't hold a reversed path; the bounce throws you back into a glide.
 			if ctx.State == "Dive" or ctx.State == "Swoop" then
 				transition(ctx, "Glide", nil)
@@ -322,8 +323,8 @@ local function step(dt: number)
 			placeOnGround(ctx, ground.Position)
 			ctx.Velocity = bounced
 			trace(ctx, "bounced off the ground")
-			Controller.Bounced:Fire(ground.Position)
-			transition(ctx, "Hop", { Launch = true })
+			Controller.Bounced:Fire(ground.Position, into)
+			transition(ctx, "Hop", { Launch = true, Speed = into })
 			return
 		end
 	end

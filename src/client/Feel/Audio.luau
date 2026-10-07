@@ -37,7 +37,8 @@ local function makeSound(name: string): Sound
 	return sound
 end
 
-function Audio.play(name: string)
+-- `volume` scales the sound's own volume (default 1); entries scaled by speed pass it down.
+function Audio.play(name: string, volume: number?)
 	local pool = pools[name]
 	if not pool then
 		pool = {}
@@ -50,15 +51,23 @@ function Audio.play(name: string)
 	local index = poolNext[name]
 	poolNext[name] = index % #pool + 1
 	local sound = pool[index]
+	local def = Tuning.Sounds[name]
 	local jitter = Tuning.Audio.PitchJitter
-	sound.PlaybackSpeed = Tuning.Sounds[name].Pitch * (1 + (math.random() * 2 - 1) * jitter)
+	sound.PlaybackSpeed = def.Pitch * (1 + (math.random() * 2 - 1) * jitter)
+	sound.Volume = def.Volume * (volume or 1)
 	sound.TimePosition = 0
 	sound:Play()
 end
 
+-- Per-frame values for a loop (set, never tweened): volume 0–1 of its own volume, pitch added to 1×.
+function Audio.drive(loop: string, volume: number, pitch: number)
+	layers:set(`loop.{loop}`, volume, 0)
+	layers:set(`pitch.{loop}`, pitch, 0)
+end
+
 function Audio.apply(entry: { [string]: any }, duration: number)
 	if entry.sound then
-		Audio.play(entry.sound)
+		Audio.play(entry.sound, entry.volume)
 	elseif entry.bus then
 		layers:apply(`bus.{entry.bus}`, entry, duration)
 	elseif entry.loop then

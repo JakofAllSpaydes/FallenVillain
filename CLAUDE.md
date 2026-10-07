@@ -2,8 +2,10 @@
 
 - Design spec: `docs/SPEC.md`. Build order and working rules are in §14; follow milestones in order. §15 records decisions made during reviews and overrides earlier sections where they disagree; add to it when a review changes the design.
 - Rojo 7 project (`default.project.json`), Luau, tools pinned in `aftman.toml`.
-- Every tunable number goes in `src/shared/Tuning.luau`, never inline.
-- Every effect goes through `FeelTable`, never called directly from a movement state.
+- Every tunable number goes in `src/shared/Tuning.luau`, never inline. Joint poses live in `Tuning.Poses` (skipped by the F2 panel); texture asset ids in `Tuning.Vfx`.
+- Every effect goes through `FeelTable`, never called directly from a movement state. Event-driven effects are FeelTable entries (`Feel/Juice.luau` documents the keys, including `curve`, `bySpeed` and `minHeld`); anything that follows live speed or charge every frame goes in `Feel/Drivers.luau` and writes a driven layer.
+- Character animation is `Feel/Anim.luau`: stock Roblox clips for locomotion plus pose offsets composed into each joint's `Transform` (the rig's joints are `AnimationConstraint`s on current rigs; `C0` is read-only there). R15 first, R6 fallback. Never touch the Humanoid's default Animate script elsewhere.
+- Juice must be industry-standard, not placeholder-grade: soft textures over primitives, rings over filled discs, trauma shake with rotation, eased kicks. VFX textures are generated and uploaded as image assets (see spec §15 milestone 3b); regenerate and re-upload rather than approximate with parts.
 - Ask before cutting anything in spec §4.
 - Format with `stylua src`.
 

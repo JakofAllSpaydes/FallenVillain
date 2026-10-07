@@ -21,7 +21,7 @@ local NAME_WIDTH = 170
 local BOX_WIDTH = 64
 local TEXT_SIZE = 13
 local SLIDER_RANGE_FACTOR = 3
-local SKIPPED_SECTIONS = { Dev = true }
+local SKIPPED_SECTIONS = { Dev = true, Poses = true } -- Poses are hundreds of joint angles; edit the file
 
 type Entry = {
 	Path: string,

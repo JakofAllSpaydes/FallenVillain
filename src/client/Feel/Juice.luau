@@ -13,6 +13,9 @@
 -- minHeld / maxHeld: only play when the hold (the last Burst's Space hold, or the punch's LMB hold for punch
 -- events) was at least / under that many seconds.
 -- byCharge = true scales the amounts (to, kick, radius, count, height) by the last Burst charge.
+-- minSpeed gates an entry on the event's speed (a touchdown or bounce speed); bySpeed = true scales the same
+-- amounts, plus `volume` for sounds, by how far the speed is from minSpeed to fullSpeed, and `dur` from
+-- durMin (if given) to dur.
 -- Delayed entries from a state's event are skipped if that state has already ended.
 
 local Tuning = require(game:GetService("ReplicatedStorage").Shared.Tuning)
@@ -36,23 +39,37 @@ local function ascentTime(): number
 	return if ctx then ctx.BurstAscentTime else 0
 end
 
-local SCALED_BY_CHARGE = { "to", "kick", "radius", "count", "height" }
+local SCALED_AMOUNTS = { "to", "kick", "radius", "count", "height", "volume", "size" }
 
-local function scaledByCharge(entry: Entry): Entry
-	local ctx = Controller.ctx
-	if not entry.byCharge or not ctx then
-		return entry
-	end
+local function scaleAmounts(entry: Entry, factor: number): Entry
 	local scaled = table.clone(entry)
-	for _, key in SCALED_BY_CHARGE do
+	for _, key in SCALED_AMOUNTS do
 		if type(scaled[key]) == "number" then
-			scaled[key] *= ctx.BurstCharge
+			scaled[key] *= factor
 		end
 	end
 	if scaled.count then
 		scaled.count = math.max(1, math.round(scaled.count))
 	end
 	return scaled
+end
+
+-- byCharge scales by the last Burst charge; bySpeed by where `speed` sits between minSpeed and fullSpeed.
+local function scaled(entry: Entry, speed: number?): Entry
+	local ctx = Controller.ctx
+	local result = entry
+	if entry.byCharge and ctx then
+		result = scaleAmounts(result, ctx.BurstCharge)
+	end
+	if entry.bySpeed and speed then
+		local low = entry.minSpeed or 0
+		local factor = math.clamp((speed - low) / math.max((entry.fullSpeed or low) - low, 1e-3), 0, 1)
+		result = scaleAmounts(result, factor)
+		if result.durMin and result.dur then
+			result.dur = result.durMin + (result.dur - result.durMin) * factor
+		end
+	end
+	return result
 end
 
 local function run(entry: Entry, duration: number, position: Vector3?)
@@ -84,8 +101,8 @@ end
 
 -- Fire a FeelTable event. `position` places spawns (default: the ground under the local player);
 -- `whileState` cancels delayed entries once the player has left that state. `held` is the hold minHeld and
--- maxHeld compare against (default: the last Burst's Space hold).
-function Juice.fire(event: string, position: Vector3?, whileState: string?, held: number?)
+-- maxHeld compare against (default: the last Burst's Space hold). `speed` is what minSpeed and bySpeed use.
+function Juice.fire(event: string, position: Vector3?, whileState: string?, held: number?, speed: number?)
 	local entries = Tuning.Feel[event]
 	if not entries then
 		return
@@ -97,7 +114,10 @@ function Juice.fire(event: string, position: Vector3?, whileState: string?, held
 		if (raw.minHeld and against < raw.minHeld) or (raw.maxHeld and against >= raw.maxHeld) then
 			continue
 		end
-		local entry = scaledByCharge(raw)
+		if raw.minSpeed and (speed or 0) < raw.minSpeed then
+			continue
+		end
+		local entry = scaled(raw, speed)
 		local duration = entry.dur or (if entry.durAscent then entry.durAscent * ascent else 0)
 		local delay = entry.delay or (if entry.atApex then ascent + entry.atApex else 0)
 		if delay <= 0 then
@@ -115,9 +135,10 @@ function Juice.fire(event: string, position: Vector3?, whileState: string?, held
 end
 
 function Juice.start()
-	Controller.StateChanged:Connect(function(from, to, _payload)
+	Controller.StateChanged:Connect(function(from, to, payload)
+		local speed = if type(payload) == "table" then payload.Speed else nil
 		Juice.fire(`Exit{from}`)
-		Juice.fire(to, nil, to)
+		Juice.fire(to, nil, to, nil, speed)
 	end)
 	Punch.Fired:Connect(function(kind, held, position)
 		Juice.fire(kind, position, nil, held)
@@ -131,8 +152,8 @@ function Juice.start()
 	JumpCheck.TierReached:Connect(function(held)
 		Juice.fire("BurstTier", nil, nil, held)
 	end)
-	Controller.Bounced:Connect(function(position)
-		Juice.fire("Bounce", position)
+	Controller.Bounced:Connect(function(position, speed)
+		Juice.fire("Bounce", position, nil, nil, speed)
 	end)
 	Juice.fire("Grounded")
 end

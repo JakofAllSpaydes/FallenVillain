@@ -1,6 +1,68 @@
 --!strict
 -- Every tunable number in the game lives here (spec §3, §4, §6). Never inline a number in gameplay code.
 
+-- A FeelTable entry (Juice.luau documents the keys) and a list of them. Annotated so strict mode doesn't try
+-- to unify every differently shaped entry in a list.
+export type FeelEntry = { [string]: any }
+export type FeelList = { FeelEntry }
+
+local function join(...: FeelList): FeelList
+	local out: FeelList = {}
+	for _, list in { ... } do
+		for _, entry in list do
+			table.insert(out, entry)
+		end
+	end
+	return out
+end
+
+-- Touchdown juice shared by Landing and Slide (spec §4.8, scaled down to a landing until Impact exists in
+-- milestone 4). bySpeed entries scale with the touchdown speed up to fullSpeed; minSpeed gates them, so a hop
+-- landing is a soft thud and a dive from altitude is a hitstop, a flash, a ring, a crater and flying debris.
+local TOUCHDOWN: FeelList = {
+	-- Every landing: a thud, a puff, a little camera dip.
+	{ sound = "Land", volume = 1, bySpeed = true, minSpeed = 0, fullSpeed = 120 },
+	{ spawn = "Dust", count = 40, bySpeed = true, minSpeed = 20, fullSpeed = 250 },
+	{ cam = "shake", kick = 1.4, freq = 40, dur = 0.5, curve = "expo", bySpeed = true, minSpeed = 60, fullSpeed = 450 },
+	{ cam = "recoilDown", kick = 1.5, dur = 0.35, curve = "spring", bySpeed = true, minSpeed = 60, fullSpeed = 450 },
+	{ cam = "fovOffset", kick = -4, dur = 0.3, curve = "expo", bySpeed = true, minSpeed = 60, fullSpeed = 450 },
+	-- A fast dive: the impact frame (hitstop, flash, desaturation), then the world reacts.
+	{ sound = "HeavyLand", volume = 1, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
+	{ time = 0, dur = 0.18, durMin = 0.08, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
+	{ post = "Flash", kick = 0.75, dur = 0.3, curve = "expo", bySpeed = true, minSpeed = 150, fullSpeed = 450 },
+	{ post = "Saturation", kick = -0.6, dur = 0.8, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
+	{ post = "Contrast", kick = 0.2, dur = 0.5, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
+	{ post = "Vignette", kick = 0.6, dur = 0.7, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
+	{ spawn = "Flash3D", size = 30, lift = 3, dur = 0.35, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
+	{ spawn = "Shockwave", radius = 60, alpha = 0.9, dur = 0.45, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
+	{
+		spawn = "Shockwave",
+		radius = 95,
+		alpha = 0.45,
+		dur = 0.7,
+		delay = 0.08,
+		bySpeed = true,
+		minSpeed = 220,
+		fullSpeed = 450,
+	},
+	{ spawn = "DustRing", radius = 40, count = 140, delay = 0.05, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
+	{ spawn = "Crater", radius = 24, dur = 12, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
+	{
+		spawn = "Debris",
+		count = 28,
+		speedMin = 30,
+		speedMax = 75,
+		upBias = 0.8,
+		life = 2.4,
+		bySpeed = true,
+		minSpeed = 150,
+		fullSpeed = 450,
+	},
+	{ spawn = "Dust", count = 120, delay = 0.05, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
+	{ cam = "distanceOffset", kick = 6, dur = 0.9, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
+	{ bus = "Ambient", kick = 0.9, dur = 0.6, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
+}
+
 local Tuning = {
 	Gravity = {
 		Default = 196.2,
@@ -296,21 +358,45 @@ local Tuning = {
 		},
 	},
 
+	-- Trauma-style shake (Camera/CameraEffects.luau): a shake entry's amount is a trauma level; what the camera
+	-- does is trauma^Exponent, split into a positional offset and a rotational wobble.
+	CameraShake = {
+		MaxTrauma = 2,
+		Exponent = 1.6,
+		PositionScale = 0.35, -- studs of offset per unit of shake power
+		RotationDegrees = 1.6, -- degrees of roll/pitch/yaw wobble per unit of shake power
+	},
+
 	-- FeelTable (spec §4, §12): every effect, keyed by event. Juice.luau documents the entry keys.
 	-- Frame timings from §4 are at 60 fps: frame 2 = 0.033 s, frame 4 = 0.066 s, frame 8 = 0.133 s.
 	Feel = {
 		Grounded = { { loop = "Wind", to = 0.15, dur = 1 } },
-		Landing = { { loop = "Wind", to = 0.15, dur = 0.6 } },
-		Hop = { { sound = "Hop" }, { loop = "Wind", to = 0.25, dur = 0.3 } },
+		Landing = join({ { loop = "Wind", to = 0.15, dur = 0.6 } }, TOUCHDOWN),
+		Slide = join({ { loop = "Wind", to = 0.5, dur = 0.3 }, { spawn = "Dust", count = 12 } }, TOUCHDOWN),
+		-- §4.9: a small dust puff and a light whoosh on takeoff; the squash and stretch are in the animation.
+		Hop = { { sound = "Hop" }, { loop = "Wind", to = 0.25, dur = 0.3 }, { spawn = "Dust", count = 6 } },
 		Glide = { { loop = "Wind", to = 0.4, dur = 0.5 } },
-		Dive = { { loop = "Wind", to = 0.85, dur = 0.3 } },
-		Swoop = { { loop = "Wind", to = 0.6, dur = 0.3 } },
-		Slide = { { loop = "Wind", to = 0.5, dur = 0.3 } },
+		-- §4.6: the wings snap shut; speed does the rest through Tuning.Drive (FOV, shake, rush, lines, heat).
+		Dive = {
+			{ loop = "Wind", to = 0.85, dur = 0.3 },
+			{ sound = "WingSnap" },
+			{ cam = "fovOffset", kick = 4, dur = 0.2 },
+		},
+		-- §4.7: wings open with a crack, a short time dip, the FOV drags down then eases back.
+		Swoop = {
+			{ loop = "Wind", to = 0.6, dur = 0.3 },
+			{ sound = "WingCatch" },
+			{ time = 0.4, dur = 0.1 },
+			{ cam = "fovOffset", kick = -12, dur = 0.35 },
+			{ cam = "tilt", kick = 5, dur = 0.4 },
+			{ vfx = "Trails", to = 1, dur = 0 },
+			{ vfx = "Trails", to = 0, dur = 0, delay = 0.5 },
+		},
 
 		-- §4.1: the hold narrows everything in. The crack and light are the charge bar. Ramps run over the
-		-- first seconds of the hold; the Burst height keeps climbing after they finish.
+		-- first seconds of the hold; the Burst height keeps climbing after they finish. The camera zoom is
+		-- driven by the hold itself (Tuning.Drive.Charge), not tweened here.
 		Charging = {
-			{ cam = "fovOffset", to = -8, dur = 8 },
 			{ cam = "shake", from = 0.05, to = 0.3, freq = 20, dur = 8 },
 			{ cam = "tilt", to = -3, dur = 8 },
 			{ post = "Saturation", to = -0.4, dur = 8 },
@@ -326,7 +412,6 @@ local Tuning = {
 
 		-- Leaving Charging any way (Burst, or a punch cancelling it) clears the charge effects.
 		ExitCharging = {
-			{ cam = "fovOffset", to = 0, dur = 0.3 },
 			{ cam = "shake", to = 0, dur = 0.3 },
 			{ cam = "tilt", to = 0, dur = 0.3 },
 			{ post = "Saturation", to = 0, dur = 0.3 },
@@ -351,8 +436,11 @@ local Tuning = {
 			{ bus = "Music", to = 0, dur = 0.3, delay = 0.12 },
 			{ sound = "SubHit", minHeld = 5 },
 			{ sound = "BurstHop", maxHeld = 5 },
-			{ post = "Flash", kick = 0.9, dur = 0.25, byCharge = true },
-			{ spawn = "Shockwave", radius = 60, alpha = 0.8, dur = 0.6, byCharge = true },
+			{ post = "Flash", kick = 0.9, dur = 0.3, curve = "expo", byCharge = true },
+			{ spawn = "Flash3D", size = 36, lift = 2, dur = 0.4, byCharge = true },
+			{ spawn = "Shockwave", radius = 60, alpha = 0.9, dur = 0.6, byCharge = true },
+			{ spawn = "Shockwave", radius = 30, alpha = 0.6, dur = 0.35, byCharge = true },
+			{ spawn = "DustRing", radius = 26, count = 110, byCharge = true },
 			{ spawn = "Debris", count = 24, speedMin = 40, speedMax = 80, upBias = 0.5, life = 2, byCharge = true },
 			{ spawn = "LightColumn", height = 3000, width = 4, alpha = 0.7, dur = 3, byCharge = true },
 			{ vfx = "CrackRadius", to = 0, dur = 0 },
@@ -364,9 +452,9 @@ local Tuning = {
 			{ post = "Saturation", to = 0, dur = 0.4 },
 			{ post = "Contrast", to = 0, dur = 0.4 },
 			{ post = "Vignette", to = 0, dur = 0.4 },
-			{ cam = "recoilDown", kick = 2, dur = 0.3, delay = 0.033, byCharge = true },
-			{ cam = "recoilBack", kick = 3, dur = 0.3, delay = 0.033, byCharge = true },
-			{ cam = "shake", kick = 1.2, freq = 35, dur = 0.6, delay = 0.033, byCharge = true },
+			{ cam = "recoilDown", kick = 2, dur = 0.4, curve = "spring", delay = 0.033, byCharge = true },
+			{ cam = "recoilBack", kick = 3, dur = 0.4, curve = "spring", delay = 0.033, byCharge = true },
+			{ cam = "shake", kick = 1.3, freq = 35, dur = 0.7, curve = "expo", delay = 0.033, byCharge = true },
 			{ cam = "fovOffset", to = 35, dur = 0.15, delay = 0.033, byCharge = true },
 			{ post = "Blur", to = 12, dur = 0.1, delay = 0.033, byCharge = true },
 			{ post = "Blur", to = 0, dur = 0.4, delay = 0.2 },
@@ -418,30 +506,42 @@ local Tuning = {
 		Dash = {
 			{ loop = "PunchHum", to = 0, dur = 0.1 },
 			{ sound = "Dash" },
-			{ cam = "fovOffset", kick = 5, dur = 0.3 },
-			{ cam = "shake", kick = 0.3, freq = 30, dur = 0.25, minHeld = 0.6 },
-			{ cam = "fovOffset", kick = 6, dur = 0.4, minHeld = 0.6 },
+			{ spawn = "Sparks", count = 14 },
+			{ spawn = "Flash3D", size = 5, dur = 0.2 },
+			{ cam = "fovOffset", kick = 5, dur = 0.3, curve = "expo" },
+			{ cam = "recoilBack", kick = 1, dur = 0.3, curve = "spring" },
+			{ spawn = "Sparks", count = 30, minHeld = 0.6 },
+			{ spawn = "Flash3D", size = 9, dur = 0.25, minHeld = 0.6 },
+			{ cam = "shake", kick = 0.5, freq = 30, dur = 0.3, curve = "expo", minHeld = 0.6 },
+			{ cam = "fovOffset", kick = 6, dur = 0.4, curve = "expo", minHeld = 0.6 },
 			{ sound = "RocketPop", minHeld = 5 },
-			{ post = "Flash", kick = 0.25, dur = 0.2, minHeld = 5 },
-			{ cam = "shake", kick = 0.8, freq = 30, dur = 0.5, minHeld = 5 },
-			{ spawn = "Shockwave", radius = 20, alpha = 0.5, dur = 0.4, minHeld = 5 },
+			{ post = "Flash", kick = 0.25, dur = 0.2, curve = "expo", minHeld = 5 },
+			{ cam = "shake", kick = 0.9, freq = 30, dur = 0.5, curve = "expo", minHeld = 5 },
+			{ spawn = "Shockwave", radius = 20, alpha = 0.6, dur = 0.4, minHeld = 5 },
+			{ spawn = "Flash3D", size = 16, dur = 0.3, minHeld = 5 },
 			{ sound = "BurstCrack", minHeld = 20 },
-			{ post = "Flash", kick = 0.5, dur = 0.3, minHeld = 20 },
+			{ post = "Flash", kick = 0.5, dur = 0.3, curve = "expo", minHeld = 20 },
 			{ post = "Blur", kick = 8, dur = 0.4, minHeld = 20 },
-			{ spawn = "Shockwave", radius = 40, alpha = 0.6, dur = 0.5, minHeld = 20 },
+			{ spawn = "Shockwave", radius = 40, alpha = 0.7, dur = 0.5, minHeld = 20 },
+			{ spawn = "DustRing", radius = 16, count = 60, minHeld = 20 },
 			{ time = 0.2, dur = 0.08, minHeld = 40 },
 			{ sound = "SubHit", minHeld = 40 },
-			{ cam = "shake", kick = 1.5, freq = 35, dur = 0.8, minHeld = 40 },
+			{ cam = "shake", kick = 1.5, freq = 35, dur = 0.8, curve = "expo", minHeld = 40 },
 		},
 		Rocket = {
 			{ loop = "PunchHum", to = 0, dur = 0.1 },
 			{ sound = "RocketPop" },
-			{ cam = "shake", kick = 0.5, freq = 30, dur = 0.3 },
-			{ cam = "fovOffset", kick = 6, dur = 0.3 },
+			{ cam = "shake", kick = 0.6, freq = 30, dur = 0.35, curve = "expo" },
+			{ cam = "fovOffset", kick = 6, dur = 0.3, curve = "expo" },
+			{ cam = "recoilDown", kick = 1, dur = 0.3, curve = "spring" },
 			{ spawn = "Dust", count = 30 },
-			{ post = "Flash", kick = 0.25, dur = 0.2, minHeld = 5 },
+			{ spawn = "Sparks", count = 24 },
+			{ spawn = "Shockwave", radius = 10, alpha = 0.6, dur = 0.3 },
+			{ spawn = "Flash3D", size = 10, lift = 1, dur = 0.25 },
+			{ post = "Flash", kick = 0.12, dur = 0.15, curve = "expo" },
+			{ post = "Flash", kick = 0.25, dur = 0.2, curve = "expo", minHeld = 5 },
 			{ sound = "BurstCrack", minHeld = 20 },
-			{ cam = "shake", kick = 1.2, freq = 35, dur = 0.6, minHeld = 20 },
+			{ cam = "shake", kick = 1.2, freq = 35, dur = 0.6, curve = "expo", minHeld = 20 },
 		},
 		Fizzle = { { loop = "PunchHum", to = 0, dur = 0.1 } },
 		-- Charging feedback: a hum that rises with the punch hold, and a chime that climbs a step per tier.
@@ -461,17 +561,40 @@ local Tuning = {
 			{ cam = "shake", kick = 0.4, freq = 25, dur = 0.3 },
 			{ post = "Flash", kick = 0.1, dur = 0.15 },
 		},
-		-- Bouncing off a wall that isn't destructible.
+		-- Bouncing off a wall that isn't destructible, or punching off the ground; harder hits hit harder.
 		Bounce = {
-			{ sound = "Bounce" },
-			{ cam = "shake", kick = 0.4, freq = 30, dur = 0.25 },
+			{ sound = "Bounce", volume = 1, bySpeed = true, minSpeed = 0, fullSpeed = 200 },
+			{
+				cam = "shake",
+				kick = 1.2,
+				freq = 30,
+				dur = 0.35,
+				curve = "expo",
+				bySpeed = true,
+				minSpeed = 0,
+				fullSpeed = 300,
+			},
+			{
+				cam = "recoilBack",
+				kick = 1.5,
+				dur = 0.3,
+				curve = "spring",
+				bySpeed = true,
+				minSpeed = 40,
+				fullSpeed = 300,
+			},
+			{ spawn = "Sparks", count = 20, bySpeed = true, minSpeed = 40, fullSpeed = 300 },
+			{ spawn = "Dust", count = 30, bySpeed = true, minSpeed = 40, fullSpeed = 300 },
+			{ spawn = "Flash3D", size = 12, dur = 0.25, bySpeed = true, minSpeed = 40, fullSpeed = 300 },
+			{ time = 0.1, dur = 0.06, minSpeed = 200 },
+			{ post = "Flash", kick = 0.3, dur = 0.2, curve = "expo", bySpeed = true, minSpeed = 150, fullSpeed = 400 },
 		},
 		-- Another player's burst (spec §7): the column everyone sees.
 		RemoteBurst = {
 			{ spawn = "LightColumn", height = 3000, width = 4, alpha = 0.7, dur = 3 },
 			{ spawn = "Shockwave", radius = 60, alpha = 0.5, dur = 0.6 },
 		},
-	},
+	} :: { [string]: FeelList },
 
 	-- Placeholder sounds from the engine's built-in content until the audio pass (milestone 7).
 	Sounds = {
@@ -499,6 +622,12 @@ local Tuning = {
 		TierChime3 = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Sfx", Volume = 0.6, Pitch = 1.8 },
 		TierChime4 = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Sfx", Volume = 0.65, Pitch = 2.2 },
 		Bounce = { Id = "rbxasset://sounds/action_jump_land.mp3", Bus = "Sfx", Volume = 0.4, Pitch = 1.2 },
+		Land = { Id = "rbxasset://sounds/action_jump_land.mp3", Bus = "Sfx", Volume = 0.5, Pitch = 0.9 },
+		HeavyLand = { Id = "rbxasset://sounds/impact_explosion_03.mp3", Bus = "Sfx", Volume = 0.9, Pitch = 0.6 },
+		WingSnap = { Id = "rbxasset://sounds/action_get_up.mp3", Bus = "Sfx", Volume = 0.35, Pitch = 1.6 },
+		WingCatch = { Id = "rbxasset://sounds/action_get_up.mp3", Bus = "Sfx", Volume = 0.45, Pitch = 1.1 },
+		-- Speed-driven air rush on top of the state wind (Tuning.Drive.Speed), never set by the FeelTable.
+		Rush = { Id = "rbxasset://sounds/action_falling.ogg", Bus = "Wind", Volume = 0.7, Pitch = 1.3, Loop = true },
 	},
 
 	Audio = {
@@ -508,9 +637,48 @@ local Tuning = {
 	},
 
 	Vfx = {
+		-- Textures made for the game (scratch generator in the milestone 3b notes): white on alpha, tinted in code.
+		VignetteTexture = "rbxassetid://101754802395860", -- soft radial, clear middle
+		GlowTexture = "rbxassetid://73442882754892", -- soft radial sprite
+		RingTexture = "rbxassetid://128100182532027", -- soft annulus
+		CrackTexture = "rbxassetid://135539312145448", -- radial fractures
+		SpeedLineOverlay = "rbxassetid://90640540678701", -- radial streaks, clear middle
+		StreakTexture = "rbxassetid://72140792466606", -- soft horizontal streak
+		-- Screen overlays (Feel/Post.luau).
+		VignetteScale = 1.35, -- overlay size relative to the longest screen edge
+		HeatColor = Color3.fromRGB(255, 184, 128), -- warm rim at speed: pale amber, not orange
+		HeatMaxAlpha = 0.5,
+		HeatScale = 1.15,
+		HeatTint = Color3.fromRGB(255, 238, 220), -- ColorCorrection tint at full heat
+		FlashColor = Color3.fromRGB(255, 250, 240),
+		SpeedLineScale = 1.3,
+		SpeedLineMaxAlpha = 0.5,
+		SpeedLineSpin = 25, -- degrees per second each overlay copy turns (they counter-rotate)
+		SpeedLineFlicker = 9, -- Hz
 		GroundProbe = 40,
-		CrackColor = Color3.fromRGB(35, 33, 30),
-		CrackTransparency = 0.15,
+		CrackColor = Color3.fromRGB(28, 26, 24),
+		CrackTransparency = 0.1,
+		-- Impact glow sprites (Flash3D): a soft burst of light that scales up and fades.
+		FlashPool = 4,
+		FlashColor3D = Color3.fromRGB(255, 240, 215),
+		FlashGrow = 1.6, -- final size relative to the entry's size
+		-- Dust ring: a wall of dust rising from the shockwave's edge.
+		DustRingPool = 3,
+		DustRingLifetimeMin = 0.8,
+		DustRingLifetimeMax = 1.6,
+		DustRingSpeedMin = 8,
+		DustRingSpeedMax = 22,
+		DustRingRise = 12, -- upward acceleration
+		DustRingSizeStart = 4,
+		DustRingSizeEnd = 10,
+		-- Debris spin and ground bounce.
+		DebrisSpin = 8, -- radians per second at launch
+		DebrisBounce = 0.35, -- share of the fall speed kept on a ground bounce
+		DebrisBounceFriction = 0.6, -- share of level speed kept on a bounce
+		-- Trails: soft streak texture, width tapering off behind.
+		TrailWidthEnd = 0.15,
+		TrailColor = Color3.fromRGB(235, 240, 255),
+		TrailSpeedOn = 0.45, -- the speed drive (0–1) above which trails stream on their own
 		ChargeBeamHeight = 400,
 		ChargeBeamWidth = 0.5,
 		ChestLightRange = 18,
@@ -535,6 +703,279 @@ local Tuning = {
 		DustSizeEnd = 8,
 		DustTransparency = 0.4,
 		DustColor = Color3.fromRGB(170, 165, 155),
+		-- Shockwave rings: expo-out growth (higher snaps harder), then hang and fade.
+		ShockwaveSnap = 4,
+		-- Impact craters: a scorched soft disc under a ring of cracks, fading over the entry's dur.
+		CraterPool = 4,
+		CraterColor = Color3.fromRGB(22, 20, 18),
+		CraterTransparency = 0.2,
+		CraterScorchScale = 0.8, -- scorch disc radius relative to the crack radius
+		CraterScorchTransparency = 0.45,
+		-- Sparks: hot streaks at punches and bounces, white → amber, pulled down a little.
+		SparkColor = Color3.fromRGB(255, 225, 170),
+		SparkLifetimeMin = 0.25,
+		SparkLifetimeMax = 0.55,
+		SparkSpeedMin = 30,
+		SparkSpeedMax = 80,
+		SparkSize = 0.8,
+		SparkSquash = -3, -- negative stretches each spark along its travel
+		SparkGravity = 60,
+		SparkDrag = 3,
+		-- Fist glow sprite while a punch charges.
+		FistGlowSize = 2.2, -- studs at full charge
+		FistGlowAlpha = 0.85,
+		EmberTail = Color3.fromRGB(200, 60, 20),
+		-- Speed lines streaming back off the body (spec §4.3, §4.6), rate driven by speed; the screen overlay
+		-- (SpeedLineOverlay) carries most of the read, so these stay sparse.
+		SpeedLineRate = 70,
+		SpeedLineSpeed = 90,
+		SpeedLineLifetime = 0.35,
+		SpeedLineSize = 0.6,
+		SpeedLineSquash = -4, -- negative stretches each particle along its travel into a streak
+		SpeedLineSpread = 22,
+		SpeedLineTransparency = 0.4,
+		-- Embers streaming back at high dive speed (spec §4.6 300+ stage).
+		EmberRate = 90,
+		EmberColor = Color3.fromRGB(255, 150, 60),
+		EmberSpeed = 40,
+		EmberLifetime = 0.6,
+		EmberSize = 0.3,
+		-- The fist glows while a punch charges: a light and orbiting motes on the punching hand.
+		FistLight = 6,
+		FistLightRange = 10,
+		FistColor = Color3.fromRGB(255, 200, 120),
+		FistRate = 40,
+		FistSpeed = 3,
+		FistLifetime = 0.5,
+		FistSize = 0.35,
+		-- Pebbles lifting off the ground crack while the Burst charges (spec §4.1).
+		PebbleRate = 24,
+		PebbleColor = Color3.fromRGB(120, 115, 105),
+		PebbleSpeedMin = 1,
+		PebbleSpeedMax = 3,
+		PebbleLifetime = 2.5,
+		PebbleSize = 0.25,
+		PebbleSpread = 60, -- wide, so the motes rise from across the crack rather than one point
+	},
+
+	-- Per-frame driven effects (Feel/Drivers.luau): read live state every frame instead of firing on events.
+	Drive = {
+		-- Both charges pull the camera in the longer you hold (log-shaped over the whole hold curve, so the
+		-- first seconds move it most). Zoom is studs closer; Fov is added to the base FOV (negative narrows).
+		Charge = { Zoom = 5, Fov = -9 },
+		PunchCharge = { Zoom = 4, Fov = -7 },
+		ChargeSmooth = 10, -- 1/seconds the zoom follows the hold in
+		ChargeRelease = 5, -- 1/seconds it eases back out after release
+		-- FOV is the speed meter, shake is the danger meter (spec §4.10). Speed above Floor saturates toward
+		-- the maximum with the given reference speeds (1 − e^(−speed/ref)).
+		Speed = {
+			Floor = 70, -- walking and cruising glides add nothing
+			FovRef = 320,
+			Fov = 34,
+			ShakeRef = 500,
+			Shake = 1.4,
+			ShakeFreq = 30,
+			RushRef = 280, -- the rush loop (Sounds.Rush) volume
+			RushPitch = 0.5, -- added playback speed at full rush
+			LinesRef = 220, -- speed lines emission
+			LinesStart = 90, -- speed lines begin above this speed
+			HeatStart = 260, -- warm rim, tint and embers from here (spec §4.6 300+ stage)
+			HeatRange = 240, -- fully warm this much above HeatStart
+			Heat = 1, -- heat rim alpha share (Vfx.HeatMaxAlpha caps it)
+			Tint = 0.6, -- ColorCorrection warm tint share at full heat
+			DiveBlur = 7, -- radial-blur stand-in, Dive only, scaled by speed
+			DiveBlurRef = 350,
+		},
+		-- The fist glow follows the punch hold: half from the basic charge, half from the tiers beyond it.
+		FistBaseShare = 0.5,
+	},
+
+	-- Character animation (Feel/Anim.luau). Stock Roblox clips for locomotion (R15 first, R6 fallback) plus
+	-- the FALL poses in Tuning.Poses layered onto the joints.
+	Anim = {
+		Response = 16, -- 1/seconds joints ease toward their pose
+		SnapResponse = 50, -- 1/seconds for SnapTime after a state change or punch (spec §4.10: cut in, fade out)
+		SnapTime = 0.15,
+		Fade = 0.12, -- clip crossfade seconds
+		WalkMinSpeed = 1.5, -- below this the idle clip plays
+		RunSpeed = 12, -- at or above this the run clip plays instead of the walk clip
+		ClipRefSpeed = 16, -- ground speed at which the walk and run clips play at 1×
+		MinClipRate = 0.5,
+		MaxClipRate = 2.4,
+		SquatHopDepth = 0.55, -- a hop hold squats up to this share of the full squat; Charging is the full squat
+		SquatTremble = 2.5, -- degrees of root tremble at a full Burst charge
+		WindOvercharge = 0.4, -- how much further the wind-back pulls past the basic charge over the tiers
+		WindTremble = 2, -- degrees of tremble on the punching arm at the last tier
+		TrembleFrequency = 18,
+		DiveTightenTime = 1.2, -- seconds of dive hold until the second fist joins (DiveTight fully in)
+		DiveShake = 0.12, -- studs of body vibration in a dive at full speed
+		DiveShakeRef = 350,
+		DiveShakeFrequency = 28,
+		HangBreathPeriod = 2.5,
+		SquashTime = 0.28, -- touchdown squash recovery
+		SquashFullSpeed = 150, -- touchdown speed for a full squash
+		SquashMin = 0.35, -- a hop landing still squashes this much
+		StretchTime = 0.18, -- takeoff stretch recovery
+		PunchOutTime = 0.3, -- the punch pose decays over this after release
+		Clips = {
+			R15 = {
+				idle = "rbxassetid://507766666",
+				walk = "rbxassetid://507777826",
+				run = "rbxassetid://507767714",
+				jump = "rbxassetid://507765000",
+				fall = "rbxassetid://507767968",
+			},
+			R6 = {
+				idle = "rbxassetid://180435571",
+				walk = "rbxassetid://180426354",
+				run = "rbxassetid://180426354",
+				jump = "rbxassetid://125750702",
+				fall = "rbxassetid://180436148",
+			},
+		},
+	},
+
+	-- Joint offsets per pose, layered onto the stock clips (not in the F2 panel). Keys are abstract joints that
+	-- Anim maps to the rig (R15: Root, Waist, Neck, L/RShoulder, L/RElbow, L/RHip, L/RKnee; R6 has no Waist,
+	-- elbows or knees and ignores them). Values are in the parent part's axes, in degrees and studs:
+	--   P pitch: a hanging limb swings forward, the head tips up, the root leans back
+	--   T twist around the vertical axis (positive turns the front to the character's left)
+	--   S side: a hanging limb swings toward the character's right
+	--   Up / Fwd: translation
+	Poses = {
+		-- Space held on the ground: a full-body squat that deepens with the hold; Charging holds it at depth.
+		Squat = {
+			Root = { Up = -1.1, P = -12 },
+			LHip = { P = 70, S = -8 },
+			RHip = { P = 70, S = 8 },
+			LKnee = { P = -100 },
+			RKnee = { P = -100 },
+			LShoulder = { P = -25, S = -12 },
+			RShoulder = { P = -25, S = 12 },
+			Neck = { P = -15 },
+		},
+		-- LMB held: the upper body winds back for a right-handed punch, the left arm guards; the legs keep walking.
+		Wind = {
+			Waist = { T = -32 },
+			Neck = { T = 30, P = 5 },
+			Root = { P = -6, T = -6 },
+			RShoulder = { P = -75, S = 30 },
+			RElbow = { P = 110 },
+			LShoulder = { P = 45, S = -15 },
+			LElbow = { P = 60 },
+		},
+		-- The punch itself: kicked on release and left to decay.
+		PunchOut = {
+			Waist = { T = 35 },
+			Neck = { T = -25 },
+			Root = { P = -10, Fwd = 0.3 },
+			RShoulder = { P = 95, S = -10 },
+			RElbow = { P = 5 },
+			LShoulder = { P = -30, S = -15 },
+		},
+		-- Hop takeoff stretch and touchdown squash (spec §4.9), kicked on enter.
+		Stretch = {
+			Root = { Up = 0.25 },
+			LShoulder = { P = -20 },
+			RShoulder = { P = -20 },
+			LKnee = { P = -25 },
+			RKnee = { P = -25 },
+		},
+		Squash = {
+			Root = { Up = -0.9, P = -10 },
+			LHip = { P = 45, S = -6 },
+			RHip = { P = 45, S = 6 },
+			LKnee = { P = -70 },
+			RKnee = { P = -70 },
+			LShoulder = { P = 30, S = -20 },
+			RShoulder = { P = 30, S = 20 },
+			Neck = { P = -10 },
+		},
+		-- §4.2: full-body extension, arms back, head up.
+		Burst = {
+			Root = { P = 8 },
+			LShoulder = { P = -50, S = -25 },
+			RShoulder = { P = -50, S = 25 },
+			Neck = { P = 25 },
+			LHip = { P = -8 },
+			RHip = { P = -8 },
+			LKnee = { P = -15 },
+			RKnee = { P = -15 },
+		},
+		-- §4.4: limp and weightless, arms out; HangBreath sways on top on a slow cycle.
+		Hang = {
+			Root = { P = 10 },
+			LShoulder = { P = 15, S = -70 },
+			RShoulder = { P = 15, S = 70 },
+			LElbow = { P = 20 },
+			RElbow = { P = 20 },
+			LHip = { P = 10, S = -10 },
+			RHip = { P = 10, S = 10 },
+			LKnee = { P = -25 },
+			RKnee = { P = -25 },
+			Neck = { P = 15 },
+		},
+		HangBreath = {
+			Root = { Up = 0.15 },
+			LShoulder = { S = -8, P = 5 },
+			RShoulder = { S = 8, P = 5 },
+			Neck = { P = 4 },
+		},
+		-- §4.5: arms spread as wings, legs together, head up (the root is already pitched with the flight path).
+		Glide = {
+			LShoulder = { P = -15, S = -85 },
+			RShoulder = { P = -15, S = 85 },
+			LElbow = { P = 10 },
+			RElbow = { P = 10 },
+			Neck = { P = 35 },
+			LHip = { P = -5, S = -3 },
+			RHip = { P = -5, S = 3 },
+		},
+		-- Added per unit of bank (positive = rolling right): the outer arm lifts, the inner drops.
+		GlideBank = {
+			LShoulder = { S = -15 },
+			RShoulder = { S = -15 },
+		},
+		-- §4.6: tuck, lead fist forward, head down behind it; DiveTight brings the second fist in with the hold.
+		Dive = {
+			RShoulder = { P = 170, S = 8 },
+			RElbow = { P = 5 },
+			LShoulder = { P = -15, S = -5 },
+			Neck = { P = -20 },
+			LKnee = { P = -5 },
+			RKnee = { P = -5 },
+		},
+		DiveTight = {
+			LShoulder = { P = 185, S = 8 },
+			RShoulder = { P = 5, S = -5 },
+			Neck = { P = -8 },
+		},
+		-- §4.7: full-body arch, arms back, catching air.
+		Swoop = {
+			Root = { P = 15 },
+			LShoulder = { P = -60, S = -40 },
+			RShoulder = { P = -60, S = 40 },
+			Neck = { P = 30 },
+			LHip = { P = -15 },
+			RHip = { P = -15 },
+			LKnee = { P = -35 },
+			RKnee = { P = -35 },
+		},
+		-- Dive-slide: legs forward, arms back, head up (the body lean comes from the state).
+		Slide = {
+			LHip = { P = 60, S = -8 },
+			RHip = { P = 60, S = 8 },
+			LKnee = { P = -25 },
+			RKnee = { P = -25 },
+			LShoulder = { P = -35, S = -20 },
+			RShoulder = { P = -35, S = 20 },
+			Neck = { P = 20 },
+		},
+		-- Hop: knees tucked a little; the stock jump and fall clips do the rest.
+		Hop = {
+			LKnee = { P = -15 },
+			RKnee = { P = -15 },
+		},
 	},
 
 	Sky = {
