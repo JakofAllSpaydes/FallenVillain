@@ -1,9 +1,10 @@
 --!strict
--- Tester HUD: a controls and movement-tech cheat sheet, shown in every build while Tuning.Dev.ShowControlsHud
--- is on (until milestone 7's onboarding hints replace it), plus a Studio-only live readout of state, speed,
--- height and glide energy. F3 toggles. Numbers come from Tuning so the sheet stays true while tuning.
+-- Tester HUD: a mobile-game style controls and tricks list (keycap chips + one or two words), shown in every
+-- build while Tuning.Dev.ShowControlsHud is on (until milestone 7's onboarding hints replace it), plus a
+-- Studio-only live readout of state, speed, height and glide energy. F3 toggles.
 --
--- KEEP THIS CURRENT: every new input, mechanic or tech gets a row in SECTIONS in the same change.
+-- KEEP THIS CURRENT: every new input, mechanic or trick gets a row in SECTIONS in the same change.
+-- Rows are a key (or action) chip sequence and a label of at most two words.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -15,66 +16,124 @@ local Controller = require(script.Parent.Parent.Movement.Controller)
 
 local ControlsHud = {}
 
--- Layout and refresh rate for a test tool; not gameplay tuning.
-local WIDTH = 440
-local TEXT_SIZE = 14
-local LABEL_WIDTH = 13
-local REFRESH_INTERVAL = 0.1
-
-local function percent(fraction: number): string
-	return `{math.floor(fraction * 100 + 0.5)}%`
-end
-
-type Row = { string } -- { label, description }; a function lets the text read live Tuning values
-type Section = { Title: string, Rows: () -> { Row } }
+type Row = { Keys: { string }, Label: string }
+type Section = { Title: string?, Rows: { Row } }
 
 local SECTIONS: { Section } = {
 	{
 		Title = "CONTROLS",
-		Rows = function()
-			return {
-				{ "Mouse", "look; glide turns toward where you look" },
-				{ "WASD", "walk  ·  glide: W/S pitch, A/D turn" },
-				{ "Space", "hop (hold = higher)  ·  in glide: flap" },
-				{ "Hold LMB", "dive at the crosshair  ·  on ground: smash" },
-				{ "Release LMB", "fast dive → swoop pull-up" },
-			}
-		end,
+		Rows = {
+			{ Keys = { "W", "A", "S", "D" }, Label = "Move" },
+			{ Keys = { "MOUSE" }, Label = "Look" },
+			{ Keys = { "SPACE" }, Label = "Hop" },
+			{ Keys = { "HOLD", "LMB" }, Label = "Dive" },
+			{ Keys = { "LET GO" }, Label = "Swoop" },
+		},
 	},
 	{
-		Title = "TECH",
-		Rows = function()
-			local T = Tuning.Tech
-			return {
-				{ "Bunny hop", `hop within {Tuning.Hop.ChainWindow}s of landing: +{percent(T.PerfectHopBonus)} speed` },
-				{ "Dive-slide", `dive into ground under {T.SlideMaxAngle}° at {T.SlideMinSpeed}+ speed` },
-				{ "", "→ slide; hop out to keep the speed" },
-				{ "Tap boost", `in glide, tap LMB (under {T.TapWindow}s): +{T.TapBoost} speed` },
-				{ "Swoop skim", `pull-up within {T.SkimHeight} studs of ground: +{percent(T.SkimBoost)}` },
-				{ "Chain", "dive → skim → slide → hop → tap → dive" },
-			}
-		end,
+		Title = "TRICKS",
+		Rows = {
+			{ Keys = { "LAND", "SPACE" }, Label = "Bunny hop" },
+			{ Keys = { "DIVE", "FLAT" }, Label = "Slide" },
+			{ Keys = { "TAP", "LMB" }, Label = "Boost" },
+			{ Keys = { "LET GO", "LOW" }, Label = "Skim" },
+		},
 	},
 }
 
-local function pad(text: string): string
-	return text .. string.rep(" ", math.max(1, LABEL_WIDTH - utf8.len(text) :: number))
+-- Chips that describe an action or timing rather than a physical key get the accent style.
+local ACTION_CHIPS = { HOLD = true, TAP = true, ["LET GO"] = true, LAND = true, DIVE = true, FLAT = true, LOW = true }
+
+-- Look and layout of a test tool; not gameplay tuning. Sizes are at 1080p and scale with the screen.
+local FONT = Enum.Font.FredokaOne
+local LABEL_SIZE = 26
+local CHIP_SIZE = 20
+local TITLE_SIZE = 18
+local LIVE_SIZE = 18
+local CHIP_HEIGHT = 34
+local ROW_GAP = 6
+local REFERENCE_HEIGHT = 1080
+local MIN_SCALE, MAX_SCALE = 0.6, 1.25
+local REFRESH_INTERVAL = 0.1
+local KEY_COLOR = Color3.fromRGB(245, 245, 245)
+local KEY_TEXT = Color3.fromRGB(30, 30, 35)
+local ACTION_COLOR = Color3.fromRGB(255, 196, 60)
+local ACTION_TEXT = Color3.fromRGB(60, 35, 0)
+local TITLE_COLOR = Color3.fromRGB(255, 220, 120)
+local OUTLINE = Color3.fromRGB(20, 20, 25)
+
+local function outlined(label: TextLabel, thickness: number)
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = OUTLINE
+	stroke.Thickness = thickness
+	stroke.Parent = label
 end
 
-local function sheet(): string
-	local lines = {}
-	for index, section in SECTIONS do
-		if index > 1 then
-			table.insert(lines, "")
-		end
-		table.insert(lines, `<b>{section.Title}</b>`)
-		for _, row in section.Rows() do
-			table.insert(lines, pad(row[1]) .. row[2])
-		end
+local function text(parent: Instance, value: string, size: number, order: number): TextLabel
+	local label = Instance.new("TextLabel")
+	label.BackgroundTransparency = 1
+	label.Font = FONT
+	label.Text = value
+	label.TextSize = size
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.AutomaticSize = Enum.AutomaticSize.XY
+	label.Size = UDim2.new()
+	label.LayoutOrder = order
+	label.Parent = parent
+	outlined(label, 2)
+	return label
+end
+
+local function chip(parent: Instance, value: string, order: number)
+	local action = ACTION_CHIPS[value] == true
+	local label = Instance.new("TextLabel")
+	label.Font = FONT
+	label.Text = value
+	label.TextSize = CHIP_SIZE
+	label.TextColor3 = if action then ACTION_TEXT else KEY_TEXT
+	label.BackgroundColor3 = if action then ACTION_COLOR else KEY_COLOR
+	label.AutomaticSize = Enum.AutomaticSize.X
+	label.Size = UDim2.fromOffset(CHIP_HEIGHT, CHIP_HEIGHT)
+	label.LayoutOrder = order
+	label.Parent = parent
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, if action then CHIP_HEIGHT / 2 else 8)
+	corner.Parent = label
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0, 9)
+	padding.PaddingRight = UDim.new(0, 9)
+	padding.Parent = label
+	local border = Instance.new("UIStroke")
+	border.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	border.Color = OUTLINE
+	border.Thickness = 2
+	border.Parent = label
+end
+
+local function horizontal(parent: Instance, gap: number, order: number): Frame
+	local frame = Instance.new("Frame")
+	frame.BackgroundTransparency = 1
+	frame.AutomaticSize = Enum.AutomaticSize.XY
+	frame.Size = UDim2.new()
+	frame.LayoutOrder = order
+	frame.Parent = parent
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.VerticalAlignment = Enum.VerticalAlignment.Center
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Padding = UDim.new(0, gap)
+	layout.Parent = frame
+	return frame
+end
+
+local function row(parent: Instance, data: Row, order: number)
+	local line = horizontal(parent, 10, order)
+	local keys = horizontal(line, 4, 1)
+	for index, key in data.Keys do
+		chip(keys, key, index)
 	end
-	table.insert(lines, "")
-	table.insert(lines, if RunService:IsStudio() then "F2 tuning panel  ·  F3 hide this" else "F3 hide this")
-	return table.concat(lines, "\n")
+	text(line, data.Label, LABEL_SIZE, 2)
 end
 
 function ControlsHud.start()
@@ -88,49 +147,51 @@ function ControlsHud.start()
 	gui.ResetOnSpawn = false
 	gui.DisplayOrder = 50
 
-	local frame = Instance.new("Frame")
-	frame.BackgroundColor3 = Color3.new(0, 0, 0)
-	frame.BackgroundTransparency = 0.45
-	frame.BorderSizePixel = 0
-	frame.AnchorPoint = Vector2.new(0, 1)
-	frame.Position = UDim2.new(0, 8, 1, -8)
-	frame.Size = UDim2.fromOffset(WIDTH, 0)
-	frame.AutomaticSize = Enum.AutomaticSize.Y
-	frame.Parent = gui
+	local scale = Instance.new("UIScale")
+	scale.Parent = gui
+	local function rescale()
+		local height = workspace.CurrentCamera.ViewportSize.Y
+		scale.Scale = math.clamp(height / REFERENCE_HEIGHT, MIN_SCALE, MAX_SCALE)
+	end
+	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
+	rescale()
 
-	local padding = Instance.new("UIPadding")
-	padding.PaddingTop = UDim.new(0, 6)
-	padding.PaddingBottom = UDim.new(0, 6)
-	padding.PaddingLeft = UDim.new(0, 8)
-	padding.PaddingRight = UDim.new(0, 8)
-	padding.Parent = frame
-
+	local column = Instance.new("Frame")
+	column.BackgroundTransparency = 1
+	column.AnchorPoint = Vector2.new(0, 1)
+	column.Position = UDim2.new(0, 16, 1, -16)
+	column.AutomaticSize = Enum.AutomaticSize.XY
+	column.Size = UDim2.new()
+	column.Parent = gui
 	local layout = Instance.new("UIListLayout")
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Padding = UDim.new(0, 6)
-	layout.Parent = frame
+	layout.Padding = UDim.new(0, ROW_GAP)
+	layout.Parent = column
 
-	local function textLabel(order: number): TextLabel
-		local label = Instance.new("TextLabel")
-		label.BackgroundTransparency = 1
-		label.Font = Enum.Font.Code
-		label.TextSize = TEXT_SIZE
-		label.TextColor3 = Color3.new(1, 1, 1)
-		label.TextXAlignment = Enum.TextXAlignment.Left
-		label.TextYAlignment = Enum.TextYAlignment.Top
-		label.RichText = true
-		label.Size = UDim2.fromScale(1, 0)
-		label.AutomaticSize = Enum.AutomaticSize.Y
-		label.LayoutOrder = order
-		label.Parent = frame
-		return label
+	local order = 0
+	local function nextOrder(): number
+		order += 1
+		return order
 	end
 
-	local live = textLabel(1)
-	live.TextColor3 = Color3.fromRGB(255, 220, 120)
+	local live = text(column, "", LIVE_SIZE, nextOrder())
+	live.TextColor3 = TITLE_COLOR
 	live.Visible = studio
-	local help = textLabel(2)
-	help.Text = sheet()
+
+	for _, section in SECTIONS do
+		if section.Title then
+			local title = text(column, section.Title, TITLE_SIZE, nextOrder())
+			title.TextColor3 = TITLE_COLOR
+		end
+		for _, data in section.Rows do
+			row(column, data, nextOrder())
+		end
+	end
+	local footer = horizontal(column, 10, nextOrder())
+	if studio then
+		row(footer, { Keys = { "F2" }, Label = "Tuning" }, 1)
+	end
+	row(footer, { Keys = { "F3" }, Label = "Hide" }, 2)
 
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 
@@ -141,25 +202,20 @@ function ControlsHud.start()
 	end)
 
 	if not studio then
-		return -- Tuning can't change outside Studio, so the sheet is static there
+		return
 	end
 	task.spawn(function()
 		while true do
-			if gui.Enabled then
-				local ctx = Controller.ctx
-				if ctx then
-					local v = ctx.Root.AssemblyLinearVelocity
-					local flat = Vector3.new(v.X, 0, v.Z).Magnitude
-					live.Text = string.format(
-						"%-8s speed %3d  (flat %3d)  height %4d  energy %3d",
-						ctx.State,
-						math.floor(v.Magnitude),
-						math.floor(flat),
-						math.floor(ctx.Altitude),
-						math.floor(ctx.GlideEnergy)
-					)
-				end
-				help.Text = sheet()
+			local ctx = Controller.ctx
+			if gui.Enabled and ctx then
+				local v = ctx.Root.AssemblyLinearVelocity
+				live.Text = string.format(
+					"%s  ·  speed %d  ·  height %d  ·  energy %d",
+					ctx.State,
+					math.floor(v.Magnitude),
+					math.floor(ctx.Altitude),
+					math.floor(ctx.GlideEnergy)
+				)
 			end
 			task.wait(REFRESH_INTERVAL)
 		end
