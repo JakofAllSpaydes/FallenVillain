@@ -69,8 +69,12 @@ local function apply(look: { [string]: any })
 	Audio.setLowPass(look.LowPass)
 end
 
+local function cameraAltitude(): number
+	return (workspace.CurrentCamera.CFrame.Position - Planet.Center).Magnitude - Planet.Radius
+end
+
 local function update(dt: number)
-	local altitude = workspace.CurrentCamera.CFrame.Position.Y - Planet.SurfaceY
+	local altitude = cameraAltitude()
 	local goal = target(altitude)
 	-- Exponential ease with a time constant of Sky.Smoothing seconds.
 	local alpha = 1 - math.exp(-dt / Tuning.Sky.Smoothing)
@@ -85,7 +89,7 @@ end
 
 function AtmosphereDriver.start()
 	atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
-	current = target(workspace.CurrentCamera.CFrame.Position.Y - Planet.SurfaceY)
+	current = target(cameraAltitude())
 	apply(current)
 	RunService.RenderStepped:Connect(update)
 end

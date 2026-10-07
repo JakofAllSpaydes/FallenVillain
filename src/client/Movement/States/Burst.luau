@@ -8,7 +8,7 @@ local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
 local MathUtil = require(script.Parent.Parent.MathUtil)
 
-local Burst = { Air = true, Punch = "Air" }
+local Burst = { Punch = "Air" }
 
 local function gravity(): number
 	return math.max(Tuning.Gravity.Burst, 1e-3)
@@ -49,30 +49,29 @@ function Burst.enter(ctx: Types.Ctx, payload: any)
 	ctx.BurstHeld = held
 	ctx.BurstCharge = math.clamp(height / B.FeelFullHeight, B.MinFeelCharge, 1)
 	ctx.BurstAscentTime = Burst.predict(velocity)
-	ctx.Velocity = Vector3.yAxis * velocity
+	ctx.Velocity = ctx.Up * velocity
 	ctx.FallPeak = ctx.Altitude + height
-	ctx.BodyDirection = Vector3.yAxis
+	ctx.BodyDirection = ctx.Up
 	ctx.Bank = 0
 end
 
 function Burst.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 	local B = Tuning.Burst
+	local up = ctx.Up
 	local g = if ctx.StateTime < B.IgnitionTime then Tuning.Gravity.BurstIgnition else Tuning.Gravity.Burst
-	local vy = ctx.Velocity.Y - g * dt
+	local vy = ctx.Velocity:Dot(up) - g * dt
 	if vy <= B.HangEntryVerticalSpeed then
 		return "Hang", nil
 	end
 
-	local horizontal = MathUtil.flat(ctx.Velocity)
+	local level = MathUtil.flat(ctx.Velocity, up)
 	if ctx.StateTime >= B.NoSteerTime then
-		local wish = MathUtil.cameraMove(ctx.Input.Move) * B.DriftSpeed
-		horizontal = MathUtil.moveTowardVector(horizontal, wish, B.DriftAccel * dt)
+		local wish = MathUtil.cameraMove(ctx.Input.Move, up) * B.DriftSpeed
+		level = MathUtil.moveTowardVector(level, wish, B.DriftAccel * dt)
 	end
-	ctx.Velocity = horizontal + Vector3.yAxis * vy
-	local look = MathUtil.flat(ctx.LookDirection)
-	if look.Magnitude > 1e-3 then
-		ctx.Heading = look.Unit
-	end
+	ctx.Velocity = level + up * vy
+	ctx.Heading = MathUtil.tangent(ctx.LookDirection, up, ctx.Heading)
+	ctx.BodyDirection = up
 	return nil
 end
 

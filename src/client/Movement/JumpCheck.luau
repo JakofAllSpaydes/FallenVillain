@@ -40,15 +40,16 @@ function JumpCheck.track(ctx: Types.Ctx, dt: number, onGround: boolean)
 		return
 	end
 	if ctx.Input.JumpHeld then
+		local charge = dt * Tuning.Dev.ChargeSpeed
 		if onGround then
 			local before = JumpCheck.held() or 0
-			groundHeld += dt
+			groundHeld += charge
 			local after = JumpCheck.held() or 0
 			if MathUtil.tier(Tuning.Burst.Tiers, after) > MathUtil.tier(Tuning.Burst.Tiers, before) then
 				JumpCheck.TierReached:Fire(after)
 			end
 		else
-			airHeld += dt
+			airHeld += charge
 		end
 	elseif not onGround then
 		JumpCheck.clear()

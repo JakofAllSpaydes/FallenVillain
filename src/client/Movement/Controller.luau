@@ -1,13 +1,19 @@
 --!strict
--- Movement state machine (spec §9, §10). Owns the shared context, runs the current state in PreSimulation,
--- applies velocity with a VectorForce cancelling world gravity, and fires StateChanged for everything else.
--- States never touch effects; they only return the next state.
+-- Movement state machine (spec §9, §10, §15 milestone 3). Owns the shared context, runs the current state in
+-- PreSimulation, hands its velocity to physics, and fires StateChanged for everything else. States never touch
+-- effects; they only return the next state.
+--
+-- The world is a globe. World gravity is zero (every state integrates its own gravity along ctx.Up) and the
+-- character's frame rolls with the planet: each frame the velocity, heading and body direction are rotated by
+-- the change in "up" since the last frame (parallel transport), so level flight follows the curve of the
+-- planet. A fast flat punch circles the globe instead of flying off it.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Destructibles = require(Shared.Destructibles)
+local Globe = require(Shared.Globe)
 local Planet = require(Shared.Planets.Planet1)
 local Signal = require(Shared.Signal)
 local Tuning = require(Shared.Tuning)
@@ -43,35 +49,47 @@ Controller.Bounced = Signal.new() :: Signal.Signal<Vector3>
 
 local persistentPower = 1
 local appliedScale = 1 -- time scale the last velocity handed to physics was multiplied by
+local appliedTilt = CFrame.identity -- arc correction the last velocity handed to physics was rotated by
+local traceFrames = 0
 
-local function uprightCFrame(position: Vector3, heading: Vector3): CFrame
-	return CFrame.lookAt(position, position + heading)
+-- Hands the state's velocity to physics. A straight step along a level velocity ends outside the sphere
+-- (the chord leaves the arc), so the velocity is tilted by half the frame's rotation around the planet
+-- before it is written: the step then lands on the arc, and level flight holds its altitude at any speed.
+local function writeVelocity(ctx: Types.Ctx, dt: number)
+	local nextUp = MathUtil.upAt(ctx.Root.Position + ctx.Velocity * dt)
+	appliedTilt = CFrame.identity:Lerp(MathUtil.transport(ctx.Up, nextUp), 0.5)
+	appliedScale = ctx.TimeScale
+	ctx.Root.AssemblyLinearVelocity = (appliedTilt * ctx.Velocity) * ctx.TimeScale
+end
+
+-- Studio-only movement trace (Tuning.Dev.TraceMovement): transitions and bounces print, and a few numbers
+-- are exposed as player attributes for the cheat sheet and test scripts.
+local function trace(ctx: Types.Ctx, message: string)
+	if Tuning.Dev.TraceMovement and RunService:IsStudio() then
+		local climb = ctx.Velocity:Dot(ctx.Up)
+		print(
+			string.format(
+				"[FALL %s] %s alt=%.0f spd=%.0f climb=%.0f",
+				ctx.State,
+				message,
+				ctx.Altitude,
+				ctx.Velocity.Magnitude,
+				climb
+			)
+		)
+	end
 end
 
 local function bodyOrientation(ctx: Types.Ctx): CFrame
 	local forward = ctx.BodyDirection
 	if not forward then
-		return uprightCFrame(Vector3.zero, ctx.Heading)
+		return MathUtil.upright(Vector3.zero, ctx.Heading, ctx.Up)
 	end
 	-- Head points along `forward`; the body's right is the heading's right, so the front faces the heading whether
 	-- the body leans forward (glide, dive: belly down) or back (slide). Bank rolls around the long axis.
-	local right = ctx.Heading:Cross(Vector3.yAxis)
+	local right = ctx.Heading:Cross(ctx.Up)
 	right = (right - forward * right:Dot(forward)).Unit
 	return CFrame.fromMatrix(Vector3.zero, right, forward) * CFrame.Angles(0, math.rad(ctx.Bank), 0)
-end
-
-local function setAirborne(ctx: Types.Ctx, air: boolean)
-	ctx.Humanoid.PlatformStand = air
-	ctx.Gravity.Enabled = air
-	ctx.Align.Enabled = air
-	if air then
-		ctx.Gravity.Force = Vector3.yAxis * ctx.Root.AssemblyMass * workspace.Gravity
-		ctx.Align.CFrame = bodyOrientation(ctx)
-	else
-		-- Stand up from whatever pose the air state left (e.g. the slide's lean) before the Humanoid takes over.
-		ctx.Root.CFrame = uprightCFrame(ctx.Root.Position, ctx.Heading)
-		ctx.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
-	end
 end
 
 local function transition(ctx: Types.Ctx, nextState: Types.MovementState, payload: any)
@@ -82,26 +100,22 @@ local function transition(ctx: Types.Ctx, nextState: Types.MovementState, payloa
 	if old.exit then
 		old.exit(ctx)
 	end
-	if old.Air ~= new.Air then
-		if not new.Air then
-			ctx.BodyDirection = nil
-			ctx.Bank = 0
-		end
-		setAirborne(ctx, new.Air)
+	if new.OnGround and not old.OnGround then
+		ctx.BodyDirection = nil
+		ctx.Bank = 0
 	end
 	ctx.State = nextState
 	ctx.StateTime = 0
 	ctx.Player:SetAttribute("MovementState", nextState) -- local-only; for inspecting in Studio
 	new.enter(ctx, payload)
-	if new.Air then
-		ctx.Root.AssemblyLinearVelocity = ctx.Velocity * ctx.TimeScale
-		appliedScale = ctx.TimeScale
-	end
+	writeVelocity(ctx, Tuning.Physics.MaxDt)
+	trace(ctx, `from {from}`)
 	Controller.StateChanged:Fire(from, nextState, payload)
 end
 
 local function placeOnGround(ctx: Types.Ctx, groundPosition: Vector3)
-	ctx.Root.CFrame = uprightCFrame(groundPosition + Vector3.yAxis * ctx.StandHeight, ctx.Heading)
+	ctx.Up = MathUtil.upAt(groundPosition)
+	ctx.Root.CFrame = MathUtil.upright(groundPosition + ctx.Up * ctx.StandHeight, ctx.Heading, ctx.Up)
 	ctx.Root.AssemblyLinearVelocity = Vector3.zero
 	ctx.Velocity = Vector3.zero
 end
@@ -111,9 +125,9 @@ local function altarPosition(): Vector3
 	if altar and altar:IsA("Model") then
 		local pivot = altar:GetPivot()
 		local _, size = altar:GetBoundingBox()
-		return pivot.Position + Vector3.yAxis * size.Y / 2
+		return pivot.Position + MathUtil.upAt(pivot.Position) * size.Y / 2
 	end
-	return Vector3.new(0, Planet.SurfaceY, 0)
+	return Planet.Center + Vector3.yAxis * Planet.Radius
 end
 
 local function respawnAtAltar(ctx: Types.Ctx)
@@ -125,12 +139,13 @@ end
 local function applyCeiling(ctx: Types.Ctx)
 	local v = ctx.Velocity
 	local ceiling = ctx.FallPeak * (1 + Tuning.Swoop.MaxAirGainFraction)
-	if ctx.State ~= "Hop" and ctx.State ~= "Burst" and v.Y > 0 then
+	local climb = v:Dot(ctx.Up)
+	if ctx.State ~= "Hop" and ctx.State ~= "Burst" and climb > 0 then
 		-- Cap climb speed to what would just coast to the ceiling, so the arc rounds off instead of snapping flat.
 		local room = math.max(0, ceiling - ctx.Altitude)
 		local maxClimb = math.sqrt(2 * Tuning.Physics.CeilingDecel * room)
-		if v.Y > maxClimb then
-			v = MathUtil.flat(v) + Vector3.yAxis * maxClimb
+		if climb > maxClimb then
+			v = MathUtil.flat(v, ctx.Up) + ctx.Up * maxClimb
 		end
 	end
 	ctx.Velocity = v
@@ -149,35 +164,27 @@ local function reflect(ctx: Types.Ctx, normal: Vector3): boolean
 		return false
 	end
 	ctx.Velocity += normal * (-into + bounceOut(-into))
-	local flat = MathUtil.flat(ctx.Velocity)
+	local flat = MathUtil.flat(ctx.Velocity, ctx.Up)
 	if flat.Magnitude > 1 then
 		ctx.Heading = flat.Unit
 	end
 	return true
 end
 
--- The bounce rule (spec §15): anything that isn't destructible bounces you, walls and the invisible wall past
--- the disc edge alike. Destructibles don't; milestone 3 breaks them instead. Ground is a landing, not a bounce.
--- Returns where it bounced, if it did.
+-- The bounce rule (spec §15): anything that isn't destructible bounces you. Destructibles don't; milestone 4
+-- breaks them instead. Ground is a landing, not a bounce. Returns where it bounced, if it did.
 local function bounceOffWalls(ctx: Types.Ctx, dt: number): Vector3?
-	local position = ctx.Root.Position
-	local flatPos = MathUtil.flat(position)
-	if flatPos.Magnitude > Planet.DiscDiameter / 2 + Tuning.World.EdgeWallMargin then
-		if reflect(ctx, -flatPos.Unit) then
-			return position
-		end
-	end
-
 	local speed = ctx.Velocity.Magnitude
 	if speed < 1 then
 		return nil
 	end
+	local position = ctx.Root.Position
 	local reach = ctx.Velocity.Unit * (speed * dt + Tuning.Physics.BounceProbe)
-	local hit = workspace:Raycast(position, reach, ctx.RaycastParams)
+	local hit = Globe.raycast(position, reach, ctx.RaycastParams)
 	if
 		hit
-		and hit.Normal.Y < Tuning.Physics.MinGroundNormalY
-		and not Destructibles.isDestructible(hit.Instance)
+		and hit.Normal:Dot(ctx.Up) < Tuning.Physics.MinGroundNormalY
+		and not (hit.Instance and Destructibles.isDestructible(hit.Instance))
 		and reflect(ctx, hit.Normal)
 	then
 		return hit.Position
@@ -186,31 +193,49 @@ local function bounceOffWalls(ctx: Types.Ctx, dt: number): Vector3?
 end
 
 -- Predicts ground contact this frame so even terminal-speed dives never tunnel through the surface.
-local function findTouchdown(ctx: Types.Ctx, dt: number): RaycastResult?
-	local vy = ctx.Velocity.Y
+local function findTouchdown(ctx: Types.Ctx, dt: number): Globe.Hit?
+	local vy = ctx.Velocity:Dot(ctx.Up)
 	if vy > 0 then
 		return nil
 	end
 	local reach = ctx.StandHeight + Tuning.Physics.LandSnap + -vy * dt
-	local hit = workspace:Raycast(ctx.Root.Position, -Vector3.yAxis * reach, ctx.RaycastParams)
-	if hit and hit.Normal.Y >= Tuning.Physics.MinGroundNormalY then
+	local hit = Globe.raycast(ctx.Root.Position, -ctx.Up * reach, ctx.RaycastParams)
+	if hit and hit.Normal:Dot(ctx.Up) >= Tuning.Physics.MinGroundNormalY then
 		return hit
 	end
 	return nil
 end
 
--- Swoop-slide: a fast, shallow touchdown out of a Swoop keeps its momentum on the ground. (Dives bounce.)
+-- Dive-slide: a touchdown out of a Dive or Swoop keeps its level momentum on the ground as a short slide
+-- (a steep dive has little level speed and just lands). Swoops only slide from a shallow angle.
 -- Call before placeOnGround; uses LandVelocity and the pre-touchdown velocity.
 local function canSlide(ctx: Types.Ctx, speed: number): boolean
 	local T = Tuning.Tech
-	if ctx.State ~= "Swoop" then
+	if ctx.State ~= "Swoop" and ctx.State ~= "Dive" then
 		return false
 	end
 	if ctx.LandVelocity.Magnitude < T.SlideMinSpeed or speed < 1e-3 then
 		return false
 	end
+	if ctx.State == "Dive" then
+		return true
+	end
 	local descent = math.deg(math.acos(math.clamp(ctx.LandVelocity.Magnitude / speed, 0, 1)))
 	return descent <= T.SlideMaxAngle
+end
+
+-- Rolls the character's frame with the planet: whatever was level last frame stays level now.
+local function transportFrame(ctx: Types.Ctx)
+	local up = MathUtil.upAt(ctx.Root.Position)
+	local roll = MathUtil.transport(ctx.Up, up)
+	if roll ~= CFrame.identity then
+		ctx.Velocity = roll * ctx.Velocity
+		ctx.Heading = MathUtil.tangent(roll * ctx.Heading, up, Vector3.xAxis)
+		if ctx.BodyDirection then
+			ctx.BodyDirection = (roll * ctx.BodyDirection).Unit
+		end
+	end
+	ctx.Up = up
 end
 
 local function step(dt: number)
@@ -226,17 +251,32 @@ local function step(dt: number)
 	ctx.Now = os.clock()
 	ctx.Input = Input.snapshot()
 	Aim.update(ctx)
-	if not States[ctx.State].Air then
-		ctx.Velocity = ctx.Root.AssemblyLinearVelocity
-	elseif appliedScale > 1e-3 then
-		ctx.Velocity = ctx.Root.AssemblyLinearVelocity / appliedScale
+	if appliedScale > 1e-3 then
+		ctx.Velocity = appliedTilt:Inverse() * (ctx.Root.AssemblyLinearVelocity / appliedScale)
 	end
-	ctx.Altitude = ctx.Root.Position.Y - Planet.SurfaceY
+	transportFrame(ctx)
+	ctx.Altitude = MathUtil.altitudeAt(ctx.Root.Position)
 	ctx.StateTime += dt
 
 	if ctx.Altitude < -Tuning.World.FallOffDepth then
+		trace(ctx, "fell through: respawn")
 		respawnAtAltar(ctx)
 		return
+	elseif ctx.Altitude < -Tuning.Physics.InsideSnap then
+		-- Under the surface (a step at extreme speed clipped the sphere): lift straight back onto it.
+		trace(ctx, "under the surface: lifted out")
+		placeOnGround(ctx, Planet.Center + ctx.Up * Planet.Radius)
+		ctx.Altitude = 0
+	end
+	if Tuning.Dev.TraceMovement then
+		traceFrames += 1
+		ctx.Player:SetAttribute("DbgFrames", traceFrames)
+		ctx.Player:SetAttribute("DbgFallPeak", ctx.FallPeak)
+		ctx.Player:SetAttribute("DbgAimPitch", MathUtil.pitchOf(ctx.AimPoint - ctx.Root.Position, ctx.Up))
+		ctx.Player:SetAttribute(
+			"DbgBodyPitch",
+			if ctx.BodyDirection then MathUtil.pitchOf(ctx.BodyDirection, ctx.Up) else 0
+		)
 	end
 
 	local state = States[ctx.State]
@@ -251,30 +291,37 @@ local function step(dt: number)
 		transition(ctx, nextState, payload)
 		return
 	end
-	if not state.Air then
-		return
-	end
 
 	applyCeiling(ctx)
-	local bouncedAt = bounceOffWalls(ctx, dt)
-	if bouncedAt then
-		ctx.LookFollowAfter = ctx.Now + Tuning.Physics.BounceSteerPause
-		Controller.Bounced:Fire(bouncedAt)
-		-- A dive or swoop can't hold a reversed path; the bounce throws you back into a glide.
-		if ctx.State == "Dive" or ctx.State == "Swoop" then
-			transition(ctx, "Glide", nil)
-			return
+	if not state.NoBounce then
+		local bouncedAt = bounceOffWalls(ctx, dt)
+		if bouncedAt then
+			ctx.LookFollowAfter = ctx.Now + Tuning.Physics.BounceSteerPause
+			trace(ctx, "bounced off a wall")
+			Controller.Bounced:Fire(bouncedAt)
+			-- A dive or swoop can't hold a reversed path; the bounce throws you back into a glide.
+			if ctx.State == "Dive" or ctx.State == "Swoop" then
+				transition(ctx, "Glide", nil)
+				return
+			end
 		end
 	end
-	local ground = if state.SkipTouchdown then nil else findTouchdown(ctx, dt)
-	if ground and ctx.State == "Dive" and not Destructibles.isDestructible(ground.Instance) then
-		-- The bounce rule covers the ground too: a dive that hits it hard enough bounces off.
+	local ground = if state.OnGround then nil else findTouchdown(ctx, dt)
+	if
+		ground
+		and ctx.State == "Dive"
+		and ctx.Input.PrimaryHeld
+		and not (ground.Instance and Destructibles.isDestructible(ground.Instance))
+	then
+		-- Punching into the ground: a dive that hits it hard enough while a punch is held bounces off.
+		-- Without the punch, dives land and slide (review note).
 		local bounced = ctx.Velocity
 		local into = -bounced:Dot(ground.Normal)
 		if into >= Tuning.Physics.MinGroundBounceSpeed then
 			bounced += ground.Normal * (into + bounceOut(into))
 			placeOnGround(ctx, ground.Position)
 			ctx.Velocity = bounced
+			trace(ctx, "bounced off the ground")
 			Controller.Bounced:Fire(ground.Position)
 			transition(ctx, "Hop", { Launch = true })
 			return
@@ -282,14 +329,13 @@ local function step(dt: number)
 	end
 	if ground then
 		local landing = { Speed = ctx.Velocity.Magnitude, FromDive = ctx.State == "Dive" }
-		ctx.LandVelocity = MathUtil.flat(ctx.Velocity)
+		ctx.LandVelocity = MathUtil.flat(ctx.Velocity, ctx.Up)
 		placeOnGround(ctx, ground.Position)
 		ctx.LastLandTime = ctx.Now
 		transition(ctx, if canSlide(ctx, landing.Speed) then "Slide" else "Landing", landing)
 		return
 	end
-	ctx.Root.AssemblyLinearVelocity = ctx.Velocity * scale
-	appliedScale = scale
+	writeVelocity(ctx, dt)
 	ctx.Align.CFrame = bodyOrientation(ctx)
 end
 
@@ -297,22 +343,16 @@ local function attach(character: Model)
 	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
 	local root = character:WaitForChild("HumanoidRootPart") :: BasePart
 
+	-- The controller owns the body in every state; the Humanoid stays for the rig, animation and replication.
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-	humanoid.WalkSpeed = Tuning.Walk.Speed
+	humanoid.AutoRotate = false
+	humanoid.PlatformStand = true
 
 	local attachment = Instance.new("Attachment")
 	attachment.Name = "MovementRoot"
 	attachment.Parent = root
-
-	local gravity = Instance.new("VectorForce")
-	gravity.Name = "StateGravity"
-	gravity.Attachment0 = attachment
-	gravity.RelativeTo = Enum.ActuatorRelativeTo.World
-	gravity.ApplyAtCenterOfMass = true
-	gravity.Enabled = false
-	gravity.Parent = root
 
 	local align = Instance.new("AlignOrientation")
 	align.Name = "BodyAlign"
@@ -320,7 +360,6 @@ local function attach(character: Model)
 	align.Attachment0 = attachment
 	align.Responsiveness = Tuning.Physics.AlignResponsiveness
 	align.MaxTorque = Tuning.Physics.AlignMaxTorque
-	align.Enabled = false
 	align.Parent = root
 
 	local params = RaycastParams.new()
@@ -328,13 +367,12 @@ local function attach(character: Model)
 	params.FilterDescendantsInstances = { character }
 	params.CollisionGroup = "Characters"
 
-	local look = MathUtil.flat(root.CFrame.LookVector)
+	local up = MathUtil.upAt(root.Position)
 	local ctx: Types.Ctx = {
 		Player = Players.LocalPlayer,
 		Character = character,
 		Humanoid = humanoid,
 		Root = root,
-		Gravity = gravity,
 		Align = align,
 		RaycastParams = params,
 		StandHeight = humanoid.HipHeight + root.Size.Y / 2,
@@ -347,8 +385,9 @@ local function attach(character: Model)
 		State = "Grounded",
 		StateTime = 0,
 		Velocity = Vector3.zero,
-		Altitude = root.Position.Y - Planet.SurfaceY,
-		Heading = if look.Magnitude > 1e-3 then look.Unit else -Vector3.zAxis,
+		Up = up,
+		Altitude = MathUtil.altitudeAt(root.Position),
+		Heading = MathUtil.tangent(root.CFrame.LookVector, up, -Vector3.zAxis),
 		BodyDirection = nil,
 		Bank = 0,
 
@@ -367,6 +406,7 @@ local function attach(character: Model)
 		LookFollowAfter = 0,
 		TimeScale = 1,
 	}
+	align.CFrame = bodyOrientation(ctx)
 	States.Grounded.enter(ctx, nil)
 	Controller.ctx = ctx
 
@@ -384,8 +424,10 @@ function Controller.drop(altitude: number)
 	if not ctx then
 		return
 	end
-	local position = ctx.Root.Position
-	ctx.Root.CFrame = uprightCFrame(Vector3.new(position.X, Planet.SurfaceY + altitude, position.Z), ctx.Heading)
+	local up = MathUtil.upAt(ctx.Root.Position)
+	local position = Planet.Center + up * (Planet.Radius + altitude)
+	ctx.Up = up
+	ctx.Root.CFrame = MathUtil.upright(position, ctx.Heading, up)
 	ctx.Altitude = altitude
 	ctx.Velocity = Vector3.zero
 	ctx.FallPeak = altitude

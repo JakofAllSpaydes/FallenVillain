@@ -4,16 +4,18 @@
 
 local RunService = game:GetService("RunService")
 
-local Tuning = require(game:GetService("ReplicatedStorage").Shared.Tuning)
+local Shared = game:GetService("ReplicatedStorage").Shared
+local Globe = require(Shared.Globe)
+local Tuning = require(Shared.Tuning)
 
 local Controller = require(script.Parent.Parent.Movement.Controller)
+local MathUtil = require(script.Parent.Parent.Movement.MathUtil)
 
 local GroundShadow = {}
 
 -- Thin enough to sit on the ground without z-fighting; not a feel value.
 local THICKNESS = 0.05
 local LIFT = 0.06
-local FLAT = CFrame.Angles(0, 0, math.pi / 2) -- cylinder axis is X; lay it flat
 
 local blob: Part
 
@@ -25,16 +27,16 @@ local function update()
 	end
 	local T = Tuning.GroundShadow
 	local origin = ctx.Root.Position
-	local hit = workspace:Raycast(origin, -Vector3.yAxis * T.MaxHeight, ctx.RaycastParams)
+	local hit = Globe.raycast(origin, -ctx.Up * T.MaxHeight, ctx.RaycastParams)
 	if not hit then
 		blob.Transparency = 1
 		return
 	end
-	local height = math.max(0, origin.Y - hit.Position.Y - ctx.StandHeight)
+	local height = math.max(0, (origin - hit.Position):Dot(ctx.Up) - ctx.StandHeight)
 	local t = math.clamp(height / T.MaxHeight, 0, 1)
 	local diameter = T.Diameter * (1 + (T.MinScale - 1) * t)
 	blob.Size = Vector3.new(THICKNESS, diameter, diameter)
-	blob.CFrame = CFrame.new(hit.Position + hit.Normal * LIFT) * FLAT
+	blob.CFrame = MathUtil.onSurface(hit.Position + hit.Normal * LIFT, hit.Normal)
 	blob.Transparency = T.Transparency + (1 - T.Transparency) * t
 end
 

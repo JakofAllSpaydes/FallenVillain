@@ -6,16 +6,24 @@
 
 local RunService = game:GetService("RunService")
 
-local Tuning = require(game:GetService("ReplicatedStorage").Shared.Tuning)
+local Shared = game:GetService("ReplicatedStorage").Shared
+local Globe = require(Shared.Globe)
+local Tuning = require(Shared.Tuning)
 local Controller = require(script.Parent.Parent.Movement.Controller)
+local MathUtil = require(script.Parent.Parent.Movement.MathUtil)
 local Layers = require(script.Parent.Layers)
 
 local Vfx = {}
 
 local layers = Layers.new({ "CrackRadius", "ChestLight", "ChargeBeam", "Trails" })
 
-local FLAT = CFrame.Angles(0, 0, math.pi / 2) -- cylinder axis is X; lay it flat
 local DECAL_LIFT = 0.05 -- keeps flat parts off the ground without z-fighting; not a feel value
+
+-- A flat effect (ring, crack) laid on the ground at `position`, which is on the globe's surface.
+local function groundDecal(position: Vector3): CFrame
+	local up = MathUtil.upAt(position)
+	return MathUtil.onSurface(position + up * DECAL_LIFT, up)
+end
 
 type Shockwave = { Part: Part, Start: number, Duration: number, Radius: number, Alpha: number }
 type Debris = { Part: Part, Velocity: Vector3, Start: number, Life: number }
@@ -62,7 +70,7 @@ end
 function Vfx.groundBelow(position: Vector3): Vector3
 	local ctx = Controller.ctx
 	local params = if ctx then ctx.RaycastParams else nil
-	local hit = workspace:Raycast(position, -Vector3.yAxis * Tuning.Vfx.GroundProbe, params)
+	local hit = Globe.raycast(position, -MathUtil.upAt(position) * Tuning.Vfx.GroundProbe, params)
 	return if hit then hit.Position else position
 end
 
@@ -83,17 +91,18 @@ function Vfx.spawn(entry: { [string]: any }, duration: number, position: Vector3
 		local slot = shockwaves[nextShockwave]
 		nextShockwave = nextShockwave % #shockwaves + 1
 		slot.Start, slot.Duration, slot.Radius, slot.Alpha = now, duration, entry.radius, entry.alpha
-		slot.Part.CFrame = CFrame.new(position + Vector3.yAxis * DECAL_LIFT) * FLAT
+		slot.Part.CFrame = groundDecal(position)
 	elseif kind == "Debris" then
+		local frame = groundDecal(position) -- X is up here
 		for _ = 1, math.min(entry.count, #debris) do
 			local slot = debris[nextDebris]
 			nextDebris = nextDebris % #debris + 1
 			local angle = math.random() * math.pi * 2
-			local out = Vector3.new(math.cos(angle), entry.upBias, math.sin(angle)).Unit
+			local out = frame:VectorToWorldSpace(Vector3.new(entry.upBias, math.cos(angle), math.sin(angle)).Unit)
 			local speed = entry.speedMin + math.random() * (entry.speedMax - entry.speedMin)
 			slot.Velocity = out * speed
 			slot.Start, slot.Life = now, entry.life
-			slot.Part.CFrame = CFrame.new(position + Vector3.yAxis)
+			slot.Part.CFrame = CFrame.new(position + frame.XVector)
 				* CFrame.Angles(math.random() * math.pi * 2, math.random() * math.pi * 2, 0)
 			slot.Part.Transparency = 0
 		end
@@ -101,7 +110,7 @@ function Vfx.spawn(entry: { [string]: any }, duration: number, position: Vector3
 		local slot = columns[nextColumn]
 		nextColumn = nextColumn % #columns + 1
 		slot.Base.WorldPosition = position
-		slot.Top.WorldPosition = position + Vector3.yAxis * entry.height
+		slot.Top.WorldPosition = position + MathUtil.upAt(position) * entry.height
 		slot.Beam.Width0, slot.Beam.Width1 = entry.width, entry.width
 		slot.Start, slot.Duration, slot.Alpha = now, duration, entry.alpha
 		slot.Beam.Enabled = true
@@ -116,7 +125,7 @@ local function updateCharge(ctx: any)
 	if radius > 0.05 and ctx then
 		crackAnchor = crackAnchor or Vfx.groundBelow(ctx.Root.Position)
 		crack.Size = Vector3.new(0.1, radius * 2, radius * 2)
-		crack.CFrame = CFrame.new((crackAnchor :: Vector3) + Vector3.yAxis * DECAL_LIFT) * FLAT
+		crack.CFrame = groundDecal(crackAnchor :: Vector3)
 		crack.Transparency = Tuning.Vfx.CrackTransparency
 	else
 		crackAnchor = nil
@@ -128,7 +137,7 @@ local function updateCharge(ctx: any)
 	if beam.Enabled then
 		local ground = Vfx.groundBelow(ctx.Root.Position)
 		beamBase.WorldPosition = ground
-		beamTop.WorldPosition = ground + Vector3.yAxis * Tuning.Vfx.ChargeBeamHeight
+		beamTop.WorldPosition = ground + ctx.Up * Tuning.Vfx.ChargeBeamHeight
 		beam.Transparency = NumberSequence.new(1 - alpha)
 	end
 
@@ -188,7 +197,7 @@ local function update(dt: number)
 	for _, piece in debris do
 		local age = now - piece.Start
 		if age < piece.Life then
-			piece.Velocity -= Vector3.yAxis * gravity * dt
+			piece.Velocity -= MathUtil.upAt(piece.Part.Position) * gravity * dt
 			piece.Part.CFrame = piece.Part.CFrame + piece.Velocity * dt
 			piece.Part.Transparency =
 				math.clamp((age - piece.Life + Tuning.Vfx.DebrisFade) / Tuning.Vfx.DebrisFade, 0, 1)

@@ -3,6 +3,7 @@
 -- characters. Magnet and smash preview arrive with destructibles in milestone 3.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
+local Globe = require(Shared.Globe)
 local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
 
@@ -14,7 +15,7 @@ Aim.view = nil :: CFrame?
 function Aim.update(ctx: Types.Ctx)
 	local view = Aim.view or workspace.CurrentCamera.CFrame
 	local reach = view.LookVector * Tuning.Aim.MaxDistance
-	local hit = workspace:Raycast(view.Position, reach, ctx.RaycastParams)
+	local hit = Globe.raycast(view.Position, reach, ctx.RaycastParams)
 	ctx.LookDirection = view.LookVector
 	ctx.AimPoint = if hit then hit.Position else view.Position + reach
 end

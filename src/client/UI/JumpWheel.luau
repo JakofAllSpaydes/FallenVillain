@@ -50,7 +50,7 @@ function JumpWheel.start()
 	gui.AlwaysOnTop = true
 	gui.LightInfluence = 0
 	gui.Size = UDim2.fromOffset(U.JumpWheelSize, U.JumpWheelSize)
-	gui.StudsOffset = Vector3.yAxis * U.JumpWheelHeight
+	gui.StudsOffset = Vector3.yAxis * U.JumpWheelHeight -- in the root's frame, so it is above the head anywhere on the globe
 	gui.ResetOnSpawn = false
 	gui.Enabled = false
 	rings = ChargeRings.new(gui, #ringEnds())

@@ -25,7 +25,9 @@ Build a place file without Studio: `rojo build -o FALL.rbxl`
 | `src/client` | `StarterPlayer.StarterPlayerScripts.Client` |
 | `src/server` | `ServerScriptService.Server` |
 
-World content (the disc, altar and later the town) is built in Studio and lives in the place file, not in this repo. Save the place after world edits.
+World content (the globe's terrain shell, altar, clouds and later the town) is built in Studio and lives in the place file, not in this repo. Save the place after world edits. The planet's radius and center are config (`src/shared/Planets/Planet1.luau`); the terrain shell is regenerated from them, never dragged.
+
+If Studio stops reflecting code changes, check that `rojo serve` is still pushing (it has silently stalled on the OneDrive folder before): restart it and click **Connect** again.
 
 ## Controls (desktop)
 
@@ -37,15 +39,18 @@ World content (the disc, altar and later the town) is built in Studio and lives 
 | Space hold | Under 1 s: a higher hop. Past 1 s: charge a Burst (higher the longer you hold) | Dive at the crosshair; release to swoop. Also pre-charges the next hop |
 | Hold left click, release | Punch: a lunge that lifts into a hop; aimed steeply at the ground, a rocket jump | Punch: turns all your speed toward the crosshair and adds to it; aimed steeply at a surface, a rocket jump |
 
-Both charges have no time limit and step up in tiers, shown by rings above your head (Space) and beside the crosshair (LMB). In the air, speed never drops on its own: dives keep accelerating and punches add to whatever speed you have. Walls and the ground bounce you.
+Both charges have no time limit and step up in tiers, shown by rings above your head (Space) and beside the crosshair (LMB). In the air, speed never drops on its own: dives keep accelerating and punches add to whatever speed you have. Walls bounce you; dives land and slide, and only bounce off the ground if a punch is held.
 
-Movement tech (bunny hop, pre-charge, dive bounce, dive boost, swoop skim and slide, rocket jump, jump punch) is described in [SPEC §15](docs/SPEC.md#15-decisions-made-during-implementation).
+The world is a globe (radius 2,500): gravity points at its center and level flight follows the curve, so a long charged punch circles the planet.
+
+Movement tech (bunny hop, pre-charge, dive slide, dive boost, swoop skim, rocket jump, jump punch, orbit) is described in [SPEC §15](docs/SPEC.md#15-decisions-made-during-implementation).
 
 ## Status
 
-Milestones 1 (movement core) and 2 (burst and arc) are done. Next is milestone 3, a polish pass on movement and punching. The plan is in [SPEC §14](docs/SPEC.md#14-build-plan-for-claude-code), and every change made in review is in §15.
+Milestones 1 (movement core), 2 (burst and arc) and 3a (the globe) are done. Next is milestone 3b, the polish pass on movement and punching. The plan is in [SPEC §14](docs/SPEC.md#14-build-plan-for-claude-code), and every change made in review is in §15.
 
 ## Studio test tools
 
 - **F2**: tuning panel. Every value in `Tuning.luau` as a slider; "Print changes" writes edited values to Output for pasting back; buttons drop you from 300/1,000/3,000 studs and set Power.
 - **F3**: hides or shows the controls and tech cheat sheet (bottom-left). It shows in every build, including published test places, while `Dev.ShowControlsHud` is on; in Studio it adds a live state/speed/height/energy readout.
+- `Dev.ChargeSpeed` multiplies how fast every hold charges (2 while testing); `Dev.TraceMovement` prints state transitions and bounces to Output in Studio.

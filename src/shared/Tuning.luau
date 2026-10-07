@@ -19,6 +19,7 @@ local Tuning = {
 
 	Walk = {
 		Speed = 24,
+		Response = 8, -- 1/seconds; walking momentum eases toward the input, so starts and stops are weighted
 	},
 
 	Hop = {
@@ -53,19 +54,21 @@ local Tuning = {
 		Reflect = 1, -- extra share of the speed you were moving into the surface that bounces back
 		GroundedMult = 0.6, -- rocket strength when punching from the ground instead of timing it from the air
 		MaxLaunchSpeed = 520,
-		-- Lunge speed for an LMB hold of N seconds, geometric between points (the forward twin of Burst.HoldHeights).
+		-- Lunge speed for an LMB hold of N seconds, geometric between points (the forward twin of Burst.HoldHeights):
+		-- a jab on tap, a burst dash at the first charge, then climbing hard toward a lap of the planet.
 		HoldBoosts = {
 			{ 0, 80 },
-			{ 0.6, 240 },
-			{ 3, 360 },
-			{ 10, 520 },
-			{ 25, 800 },
-			{ 60, 1200 },
+			{ 0.6, 260 },
+			{ 3, 420 },
+			{ 10, 1000 },
+			{ 25, 2800 },
+			{ 60, 7000 },
 		},
 		-- Seconds held where the charge steps up a tier: a chime, a new ring, bigger release juice. Each tier adds a
 		-- ring to the punch wheel; the last ring ends at the last HoldBoosts point.
 		Tiers = { 0.6, 5, 20 },
 		GroundDashLift = 35, -- a ground dash always leaves the ground with at least this much upward speed
+		GroundDashLiftShare = 0.15, -- or this share of the lunge, so a charged ground punch launches into a flight
 		DashEnergyCost = 10,
 		Cooldown = 0.25,
 	},
@@ -78,13 +81,13 @@ local Tuning = {
 		-- so it starts gentle and climbs harder the longer you hold. Power caps it.
 		HoldHeights = {
 			{ 1, 60 },
-			{ 3, 250 },
-			{ 5, 450 },
-			{ 10, 1000 },
-			{ 15, 1400 },
-			{ 25, 3000 },
-			{ 30, 3700 },
-			{ 60, 16000 },
+			{ 3, 300 },
+			{ 5, 600 },
+			{ 10, 1600 },
+			{ 15, 2600 },
+			{ 20, 4000 },
+			{ 30, 7500 },
+			{ 60, 18000 },
 		},
 		-- Seconds held where the Burst charge steps up a tier (into the clouds, above them). The jump wheel shows a
 		-- hop ring, then one ring per tier, the last ending at the last HoldHeights point.
@@ -234,13 +237,13 @@ local Tuning = {
 		GroundHoldProbe = 4, -- how far below standing height ground states look for the floor
 		BounceSteerPause = 0.8, -- seconds a glide stops turning toward the look after a wall bounce
 		MaxBounceSpeed = 260, -- fastest a bounce throws you out of a surface; speed along it is kept
-		MinGroundBounceSpeed = 40, -- a dive hitting the ground slower than this lands instead of bouncing
+		MinGroundBounceSpeed = 40, -- a punch-held dive hitting the ground slower than this lands instead of bouncing
 		BounceProbe = 2, -- studs beyond this frame's travel to look for walls
+		InsideSnap = 2, -- this far under the surface, the body is lifted straight back onto it
 	},
 
 	World = {
-		EdgeWallMargin = 40,
-		FallOffDepth = 60,
+		FallOffDepth = 60, -- this far inside the globe's surface counts as fallen through: respawn at the altar
 	},
 
 	-- Hidden movement tech. All of it comes from input timing; MaxCarrySpeed caps what chains can build.
@@ -560,6 +563,8 @@ local Tuning = {
 	},
 
 	Dev = {
+		ChargeSpeed = 2, -- test aid: every hold (hop, Burst, punch) charges this many times faster than real time
+		TraceMovement = true, -- Studio only: print state transitions and bounces, expose Dbg* player attributes
 		DropAltitudes = { 300, 1000, 3000 },
 		PowerPresets = { 1, 6, 11, 18, 25 },
 		ShowControlsHud = true, -- tester cheat sheet in every build; turn off when milestone 7 hints land

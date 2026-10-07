@@ -7,10 +7,13 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Presence = require(script.Presence)
 
--- Characters never collide with each other (spec §7, §10); movement raycasts use this group to skip them too.
+-- Characters collide with nothing (spec §7, §10, §15 3a): the movement controller handles the ground
+-- analytically and walls by raycast, so physical contact only ever kicked or tunnelled bodies at speed.
+-- Movement raycasts use this group to skip characters too.
 local CHARACTER_GROUP = "Characters"
 PhysicsService:RegisterCollisionGroup(CHARACTER_GROUP)
 PhysicsService:CollisionGroupSetCollidable(CHARACTER_GROUP, CHARACTER_GROUP, false)
+PhysicsService:CollisionGroupSetCollidable(CHARACTER_GROUP, "Default", false)
 
 local function assignGroup(instance: Instance)
 	if instance:IsA("BasePart") then

@@ -24,13 +24,13 @@ export type InputSnapshot = {
 	Move: Vector3, -- ControlModule move vector: x right, z back (W = -1)
 }
 
--- Shared physics context passed to every movement state (spec §10).
+-- Shared physics context passed to every movement state (spec §10). The world is a globe: Up points away from
+-- the planet's center at the player and every state measures "level" and "vertical" against it.
 export type Ctx = {
 	Player: Player,
 	Character: Model,
 	Humanoid: Humanoid,
 	Root: BasePart,
-	Gravity: VectorForce,
 	Align: AlignOrientation,
 	RaycastParams: RaycastParams,
 	StandHeight: number,
@@ -43,8 +43,9 @@ export type Ctx = {
 	State: MovementState,
 	StateTime: number,
 	Velocity: Vector3,
+	Up: Vector3, -- away from the planet's center at the player
 	Altitude: number,
-	Heading: Vector3, -- horizontal unit vector the body faces
+	Heading: Vector3, -- level unit vector the body faces
 	BodyDirection: Vector3?, -- head direction in air; nil = upright facing Heading
 	Bank: number, -- degrees, positive = roll right
 
@@ -54,7 +55,7 @@ export type Ctx = {
 	BurstAscentTime: number, -- seconds from ignition to apex of the last Burst
 	HopChain: number,
 	LastLandTime: number,
-	LandVelocity: Vector3, -- horizontal velocity at the last touchdown; chain hops keep it
+	LandVelocity: Vector3, -- level velocity at the last touchdown; chain hops keep it
 	SwoopReadyAt: number,
 	FallPeak: number, -- highest altitude this fall; caps air gain
 	Power: number, -- upgrade level 1–25; sets Burst velocity
@@ -64,10 +65,10 @@ export type Ctx = {
 	TimeScale: number, -- hitstop and slow-mo multiplier on dt this frame
 }
 
+-- Every state is controller-driven: it sets ctx.Velocity each frame and the controller hands it to physics.
 export type StateModule = {
-	Air: boolean,
-	SkipTouchdown: boolean?, -- controller-driven on the ground (Slide): no touchdown check
-	OnGround: boolean?, -- a ground state: Space holds here count toward the Burst charge (JumpCheck)
+	OnGround: boolean?, -- a ground state: holds the floor itself (no touchdown check) and Space holds here count toward the Burst charge
+	NoBounce: boolean?, -- walls don't bounce this state (walking into one just stops)
 	Punch: ("Ground" | "Air")?, -- what an LMB release does here; nil = the punch is dropped
 	enter: (ctx: Ctx, payload: any) -> (),
 	update: (ctx: Ctx, dt: number) -> (MovementState?, any),

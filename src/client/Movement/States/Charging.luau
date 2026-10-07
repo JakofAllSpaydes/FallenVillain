@@ -10,7 +10,7 @@ local Types = require(Shared.Types)
 local GroundHold = require(script.Parent.Parent.GroundHold)
 local JumpCheck = require(script.Parent.Parent.JumpCheck)
 
-local Charging = { Air = true, SkipTouchdown = true, OnGround = true, Punch = "Ground" }
+local Charging = { OnGround = true, NoBounce = true, Punch = "Ground" }
 
 function Charging.enter(ctx: Types.Ctx, _payload: any)
 	ctx.BodyDirection = nil

@@ -38,12 +38,13 @@ local SECTIONS: { Section } = {
 		Rows = {
 			{ Keys = { "LAND", "SPACE" }, Label = "Bunny hop" },
 			{ Keys = { "AIR", "HOLD", "SPACE" }, Label = "Pre-charge" },
-			{ Keys = { "DIVE", "GROUND" }, Label = "Bounce" },
-			{ Keys = { "SWOOP", "FLAT" }, Label = "Slide" },
+			{ Keys = { "DIVE", "LAND" }, Label = "Slide" },
+			{ Keys = { "HOLD", "LMB", "DIVE", "LAND" }, Label = "Bounce" },
 			{ Keys = { "DIVE", "LMB" }, Label = "Dive boost" },
 			{ Keys = { "LMB", "AT GROUND" }, Label = "Rocket jump" },
 			{ Keys = { "SPACE", "LMB" }, Label = "Jump punch" },
 			{ Keys = { "LET GO", "LOW" }, Label = "Skim" },
+			{ Keys = { "HOLD", "LMB", "FLAT" }, Label = "Orbit" },
 		},
 	},
 }

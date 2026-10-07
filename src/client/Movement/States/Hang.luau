@@ -1,13 +1,14 @@
 --!strict
--- Hang (spec §3, §4.4): the apex. Near-zero gravity and a slow drift for Hang.Time (shorter after small Bursts), then the wings fold into
--- Glide. Space dives straight out of it. Hang refills glide energy and starts the fall's air-gain ceiling.
+-- Hang (spec §3, §4.4): the apex. Near-zero gravity and a slow drift for Hang.Time (shorter after small Bursts),
+-- then the wings fold into Glide. Space dives straight out of it. Hang refills glide energy and starts the
+-- fall's air-gain ceiling.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
 local MathUtil = require(script.Parent.Parent.MathUtil)
 
-local Hang = { Air = true, Punch = "Air" }
+local Hang = { Punch = "Air" }
 
 function Hang.enter(ctx: Types.Ctx, _payload: any)
 	ctx.GlideEnergy = Tuning.GlideEnergy.Max
@@ -25,16 +26,13 @@ function Hang.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 		return "Glide", nil
 	end
 
-	local vy = ctx.Velocity.Y - Tuning.Gravity.Hang * dt
-	local wish = MathUtil.cameraMove(ctx.Input.Move) * H.DriftSpeed
-	local horizontal = MathUtil.moveTowardVector(MathUtil.flat(ctx.Velocity), wish, H.DriftAccel * dt)
-	ctx.Velocity = horizontal + Vector3.yAxis * vy
+	local up = ctx.Up
+	local vy = ctx.Velocity:Dot(up) - Tuning.Gravity.Hang * dt
+	local wish = MathUtil.cameraMove(ctx.Input.Move, up) * H.DriftSpeed
+	local level = MathUtil.moveTowardVector(MathUtil.flat(ctx.Velocity, up), wish, H.DriftAccel * dt)
+	ctx.Velocity = level + up * vy
 	ctx.FallPeak = math.max(ctx.FallPeak, ctx.Altitude)
-
-	local look = MathUtil.flat(ctx.LookDirection)
-	if look.Magnitude > 1e-3 then
-		ctx.Heading = look.Unit
-	end
+	ctx.Heading = MathUtil.tangent(ctx.LookDirection, up, ctx.Heading)
 	return nil
 end
 

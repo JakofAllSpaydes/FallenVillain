@@ -15,6 +15,7 @@
 -- The controller calls `update` before the state runs; it returns the transition when the punch fires.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
+local Globe = require(Shared.Globe)
 local Signal = require(Shared.Signal)
 local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
@@ -48,10 +49,10 @@ end
 local function rocket(ctx: Types.Ctx, charge: number, grounded: boolean): (Vector3?, Vector3?)
 	local P = Tuning.Punch
 	local into = aimDirection(ctx)
-	if into.Y > -math.sin(math.rad(P.RocketMinAngle)) then
+	if into:Dot(ctx.Up) > -math.sin(math.rad(P.RocketMinAngle)) then
 		return nil, nil
 	end
-	local hit = workspace:Raycast(ctx.Root.Position, into * (P.Reach + ctx.StandHeight), ctx.RaycastParams)
+	local hit = Globe.raycast(ctx.Root.Position, into * (P.Reach + ctx.StandHeight), ctx.RaycastParams)
 	if not hit then
 		return nil, nil
 	end
@@ -81,7 +82,7 @@ local function release(ctx: Types.Ctx, hold: number, grounded: boolean): (Types.
 	local launch, at = rocket(ctx, charge, grounded)
 	if launch and at then
 		-- The forward lunge still happens, along your facing; the bounce rides on top of it.
-		local forward = MathUtil.flat(ctx.LookDirection)
+		local forward = MathUtil.flat(ctx.LookDirection, ctx.Up)
 		local added = if forward.Magnitude > 1e-3 then forward.Unit * boost * P.RocketForwardShare else Vector3.zero
 		ctx.Velocity = launch + added
 		Punch.Fired:Fire("Rocket", hold, at)
@@ -89,7 +90,14 @@ local function release(ctx: Types.Ctx, hold: number, grounded: boolean): (Types.
 	end
 
 	-- Inherit: all the speed you have turns toward the crosshair, and the lunge adds on top.
+	local up = ctx.Up
 	local direction = aimDirection(ctx)
+	if grounded then
+		-- A ground dash never aims into the floor (a steep aim is the rocket jump above): it goes level or up.
+		if direction:Dot(up) < 0 then
+			direction = MathUtil.tangent(direction, up, ctx.Heading)
+		end
+	end
 	local velocity = direction * (ctx.Velocity.Magnitude + boost)
 	ctx.Velocity = velocity
 	Punch.Fired:Fire("Dash", hold, ctx.Root.Position)
@@ -100,15 +108,17 @@ local function release(ctx: Types.Ctx, hold: number, grounded: boolean): (Types.
 	if not grounded then
 		return "Glide", nil
 	end
-	-- From the ground it always lifts off a little, so gravity carries it into a hop.
-	ctx.Velocity = MathUtil.flat(velocity) + Vector3.yAxis * math.max(velocity.Y, P.GroundDashLift)
+	-- From the ground it always lifts off, so gravity carries it into a hop: a little for a jab, and in
+	-- proportion to the lunge for a charged one, so a huge punch launches into a flight around the planet.
+	local lift = math.max(P.GroundDashLift, boost * P.GroundDashLiftShare)
+	ctx.Velocity = MathUtil.flat(velocity, up) + up * math.max(velocity:Dot(up), lift)
 	return "Hop", { Launch = true }
 end
 
 function Punch.update(ctx: Types.Ctx, mode: ("Ground" | "Air")?, dt: number): (Types.MovementState?, any)
 	if ctx.Input.PrimaryHeld then
 		local before = ctx.PunchHold
-		local hold = (before or 0) + dt
+		local hold = (before or 0) + dt * Tuning.Dev.ChargeSpeed
 		ctx.PunchHold = hold
 		if before == nil then
 			Punch.ChargeStarted:Fire(hold)
