@@ -248,6 +248,7 @@ local Tuning = {
 
 	Dev = {
 		DropAltitudes = { 300, 1000, 3000 },
+		ShowControlsHud = true, -- tester cheat sheet in every build; turn off when milestone 7 hints land
 	},
 }
 

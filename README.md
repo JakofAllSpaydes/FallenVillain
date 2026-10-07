@@ -41,4 +41,4 @@ Movement tech (bunny hop, dive-slide, tap boost, swoop skim) is described in [SP
 ## Studio test tools
 
 - **F2**: tuning panel. Every value in `Tuning.luau` as a slider; "Print changes" writes edited values to Output for pasting back; buttons drop you from 300/1,000/3,000 studs.
-- **F3**: controls and tech cheat sheet with a live state/speed/height/energy readout.
+- **F3**: hides or shows the controls and tech cheat sheet (bottom-left). It shows in every build, including published test places, while `Dev.ShowControlsHud` is on; in Studio it adds a live state/speed/height/energy readout.

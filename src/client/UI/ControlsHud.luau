@@ -1,6 +1,9 @@
 --!strict
--- Studio-only testing HUD: a controls and movement-tech cheat sheet plus a live readout of state, speed,
+-- Tester HUD: a controls and movement-tech cheat sheet, shown in every build while Tuning.Dev.ShowControlsHud
+-- is on (until milestone 7's onboarding hints replace it), plus a Studio-only live readout of state, speed,
 -- height and glide energy. F3 toggles. Numbers come from Tuning so the sheet stays true while tuning.
+--
+-- KEEP THIS CURRENT: every new input, mechanic or tech gets a row in SECTIONS in the same change.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -12,41 +15,73 @@ local Controller = require(script.Parent.Parent.Movement.Controller)
 
 local ControlsHud = {}
 
--- Layout and refresh rate for a debug tool; not gameplay tuning.
-local WIDTH = 430
+-- Layout and refresh rate for a test tool; not gameplay tuning.
+local WIDTH = 440
 local TEXT_SIZE = 14
+local LABEL_WIDTH = 13
 local REFRESH_INTERVAL = 0.1
 
 local function percent(fraction: number): string
 	return `{math.floor(fraction * 100 + 0.5)}%`
 end
 
+type Row = { string } -- { label, description }; a function lets the text read live Tuning values
+type Section = { Title: string, Rows: () -> { Row } }
+
+local SECTIONS: { Section } = {
+	{
+		Title = "CONTROLS",
+		Rows = function()
+			return {
+				{ "Mouse", "look; glide turns toward where you look" },
+				{ "WASD", "walk  ·  glide: W/S pitch, A/D turn" },
+				{ "Space", "hop (hold = higher)  ·  in glide: flap" },
+				{ "Hold LMB", "dive at the crosshair  ·  on ground: smash" },
+				{ "Release LMB", "fast dive → swoop pull-up" },
+			}
+		end,
+	},
+	{
+		Title = "TECH",
+		Rows = function()
+			local T = Tuning.Tech
+			return {
+				{ "Bunny hop", `hop within {Tuning.Hop.ChainWindow}s of landing: +{percent(T.PerfectHopBonus)} speed` },
+				{ "Dive-slide", `dive into ground under {T.SlideMaxAngle}° at {T.SlideMinSpeed}+ speed` },
+				{ "", "→ slide; hop out to keep the speed" },
+				{ "Tap boost", `in glide, tap LMB (under {T.TapWindow}s): +{T.TapBoost} speed` },
+				{ "Swoop skim", `pull-up within {T.SkimHeight} studs of ground: +{percent(T.SkimBoost)}` },
+				{ "Chain", "dive → skim → slide → hop → tap → dive" },
+			}
+		end,
+	},
+}
+
+local function pad(text: string): string
+	return text .. string.rep(" ", math.max(1, LABEL_WIDTH - utf8.len(text) :: number))
+end
+
 local function sheet(): string
-	local T = Tuning.Tech
-	return table.concat({
-		"<b>CONTROLS</b>",
-		"Space        hop (hold = higher)  ·  in glide: flap",
-		"Hold LMB     dive at crosshair  ·  on ground: smash",
-		"Release LMB  fast dive → swoop pull-up",
-		"Mouse        look / steer glide",
-		"WASD         walk  ·  glide: W/S pitch, A/D turn",
-		"",
-		"<b>TECH</b>",
-		`Bunny hop    hop within {Tuning.Hop.ChainWindow}s of landing: +{percent(T.PerfectHopBonus)} speed`,
-		`Dive-slide   dive into ground under {T.SlideMaxAngle}°, {T.SlideMinSpeed}+ speed → slide`,
-		"             hop out of the slide to keep the speed",
-		`Tap boost    in glide, tap LMB (under {T.TapWindow}s): +{T.TapBoost} speed`,
-		`Swoop skim   swoop arc within {T.SkimHeight} studs of ground: +{percent(T.SkimBoost)}, stays low`,
-		"Chain        dive → skim → slide → hop → tap → dive",
-		"",
-		"F2 tuning panel  ·  F3 hide this",
-	}, "\n")
+	local lines = {}
+	for index, section in SECTIONS do
+		if index > 1 then
+			table.insert(lines, "")
+		end
+		table.insert(lines, `<b>{section.Title}</b>`)
+		for _, row in section.Rows() do
+			table.insert(lines, pad(row[1]) .. row[2])
+		end
+	end
+	table.insert(lines, "")
+	table.insert(lines, if RunService:IsStudio() then "F2 tuning panel  ·  F3 hide this" else "F3 hide this")
+	return table.concat(lines, "\n")
 end
 
 function ControlsHud.start()
-	if not RunService:IsStudio() then
+	if not Tuning.Dev.ShowControlsHud then
 		return
 	end
+	local studio = RunService:IsStudio()
 
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "FallControlsHud"
@@ -93,7 +128,9 @@ function ControlsHud.start()
 
 	local live = textLabel(1)
 	live.TextColor3 = Color3.fromRGB(255, 220, 120)
+	live.Visible = studio
 	local help = textLabel(2)
+	help.Text = sheet()
 
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 
@@ -103,6 +140,9 @@ function ControlsHud.start()
 		end
 	end)
 
+	if not studio then
+		return -- Tuning can't change outside Studio, so the sheet is static there
+	end
 	task.spawn(function()
 		while true do
 			if gui.Enabled then

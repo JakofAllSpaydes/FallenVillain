@@ -575,6 +575,6 @@ They chain: dive → skim → slide → hop → tap → dive. **Open for milesto
 
 **World readability.** The disc has a two-scale grid (16 and 128 studs) and the player has a client-only blob shadow straight below (`GroundShadow`) that shrinks and fades with height, so height above the ground is always readable.
 
-**Studio-only test tools.** F2 tuning panel (sliders, "Print changes", drop-from-altitude buttons). F3 controls and tech cheat sheet with a live readout of state, speed, height and glide energy. The current movement state is also exposed as the local player's `MovementState` attribute.
+**Test tools.** F2 tuning panel (Studio only: sliders, "Print changes", drop-from-altitude buttons). F3 toggles the controls and tech cheat sheet, which shows in every build while `Dev.ShowControlsHud` is on (until milestone 7 onboarding hints replace it) and is updated with every new feature; in Studio it also has a live readout of state, speed, height and glide energy. The current movement state is also exposed as the local player's `MovementState` attribute.
 
 **Engine note.** This Studio build no longer places `PlayerModule` in PlayerScripts, so movement input is read directly from the keyboard and gamepad (`Movement/Input.luau`); the Humanoid's default walking still works.
