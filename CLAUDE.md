@@ -1,6 +1,6 @@
 # FALL — agent notes
 
-- Design spec: `docs/SPEC.md`. Build order and working rules are in §14; follow milestones in order.
+- Design spec: `docs/SPEC.md`. Build order and working rules are in §14; follow milestones in order. §15 records decisions made during reviews and overrides earlier sections where they disagree; add to it when a review changes the design.
 - Rojo 7 project (`default.project.json`), Luau, tools pinned in `aftman.toml`.
 - Every tunable number goes in `src/shared/Tuning.luau`, never inline.
 - Every effect goes through `FeelTable`, never called directly from a movement state.

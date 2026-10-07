@@ -24,3 +24,21 @@ Build a place file without Studio: `rojo build -o FALL.rbxl`
 | `src/shared` | `ReplicatedStorage.Shared` |
 | `src/client` | `StarterPlayer.StarterPlayerScripts.Client` |
 | `src/server` | `ServerScriptService.Server` |
+
+World content (the disc, altar and later the town) is built in Studio and lives in the place file, not in this repo. Save the place after world edits.
+
+## Controls (desktop)
+
+| Input | On ground | In air |
+| --- | --- | --- |
+| Mouse | Look | Look; glide turns toward where you look |
+| WASD | Walk | Glide: W/S pitch, A/D turn |
+| Space | Hop (hold for higher) | Flap while gliding |
+| Hold left click | Ground smash | Dive at the crosshair; release to swoop |
+
+Movement tech (bunny hop, dive-slide, tap boost, swoop skim) is described in [SPEC §15](docs/SPEC.md#15-decisions-made-during-implementation).
+
+## Studio test tools
+
+- **F2**: tuning panel. Every value in `Tuning.luau` as a slider; "Print changes" writes edited values to Output for pasting back; buttons drop you from 300/1,000/3,000 studs.
+- **F3**: controls and tech cheat sheet with a live state/speed/height/energy readout.

@@ -516,6 +516,7 @@ In order. Each milestone has a done criterion that is a feel test in Studio, not
 
 1. **Movement core.** Controller state machine, all states except Impact/Laser, `VectorForce` gravity per state, aim ray, hop with float and chain, glide with energy, aimed dive with thrust and widening cone, swoop, landing. Base camera rig with the dive follow spring. No VFX, no audio.
    - Done: hopping and diving around a flat gray disc with no sound feels good for five minutes. The swoop re-aim is satisfying. Nothing jitters.
+   - **Status: passed review Oct 7, 2026.** Changes from this spec made during review are in §15.
 2. **Burst and arc.** Charging, Burst, Hang, altitude bands driving fog/lighting/stars, the shell and halo, cloud sheets. `CameraEffects` layers. `TimeScale`. The §4.1–4.4 juice for Charge, Ignition, Ascent, Hang (camera, post, placeholder sounds). Burst column replicated.
    - Done: a burst from Power 1 to Power 25 (via dev panel) reads as a cannon shot, the hang at 12,000 shows the ball, and the pull-back lands the god-ray on the character. Someone watching over your shoulder says "oh".
 3. **Impact and destruction.** Destructible catalog, prefab loader, one town and the forest placed, Impact state, `Smash` radius query, radial destruction wave with staggered breaks, chunk pool and fling, material break FX, §4.6 and §4.8 juice, the smash preview circle, reticle magnet, Landing vs Impact split.
@@ -538,3 +539,42 @@ In order. Each milestone has a done criterion that is a feel test in Studio, not
 - When a feel test fails, change curves and timing before adding effects.
 - Keep the three silences (ignition freeze, apex, post-impact). Any new sound that plays during them is a bug.
 - Ask before cutting anything in §4; it's the product.
+
+## 15. Decisions made during implementation
+
+Changes to the spec above, agreed during milestone reviews. Where this section and an earlier section disagree, this section wins. Every value named here lives in `Tuning.luau`.
+
+### Milestone 1 (movement core)
+
+**Desktop camera is mouse-look.** The free cursor in §3, §4.6 and §11 (cursor drifts on screen, camera auto-centers behind the dive velocity, edge-of-screen orbit) was disorienting in playtest. Instead: the cursor is locked to the screen center with a dot reticle, and only the mouse (or right stick) turns the camera. The aim ray goes through the screen center; the dive heads at the crosshair. Glide and Swoop turn toward where the camera looks (A/D overrides). The camera sits `Camera.ShoulderOffset` to the right so the character never covers the crosshair. States only change follow distance. Mobile controls (§3) still need their own design in milestone 7.
+
+**Hop is its own state** (`Hop`: rise → apex float → Glide). Takeoff is instant; holding space while rising raises the apex from `Hop.Height` toward `Hop.ChargedHeight`. The ground-smash hop dives straight from its apex with no float. Air control during a hop only adds speed along the input and never brakes, so strafing doesn't kill momentum.
+
+**Landing can be cancelled by a hop**, otherwise the 0.2 s chain window could never be hit inside the 0.8 s Landing.
+
+**Touchdown** is detected with a ray along the frame's fall distance instead of "vertical speed < −20", which glide sink rates never reach, and which also stops terminal dives tunnelling through the ground.
+
+**Aimed dive** snaps its entry direction to the aim point (never above `Dive.MaxPitch` below the horizon), then steers within the widening cone from §3.
+
+**Swoop is a pull-up arc.** Releasing a dive rotates the velocity upward at `Swoop.PullUpRate` while keeping speed, until the climb reaches the §3 lift target (`v × 0.55`, cap 160); then forward speed bleeds and gravity takes over. On near-vertical dives the pull-up heads toward the camera look. Swoop costs `Swoop.EnergyCost` glide energy and drains like Glide, so dive/swoop cycles can't float forever.
+
+**Air-gain ceiling** (§3, 25% of the fall's peak) rounds climbs off with `Physics.CeilingDecel` instead of zeroing vertical speed.
+
+**Glide overspeed** above `Glide.ForwardSpeed` bleeds slowly (`Glide.OverspeedBleed`) unless the player pitches up, so boosts and chains carry.
+
+**Movement tech** (hidden, from timing the existing inputs; total carried speed capped at `Tech.MaxCarrySpeed`):
+
+| Tech | Input | Effect |
+| --- | --- | --- |
+| Perfect bunny hop | Hop within `Hop.ChainWindow` of landing or of starting a slide | Keeps landing speed plus `Tech.PerfectHopBonus` |
+| Dive-slide | Touch down from Dive or Swoop at under `Tech.SlideMaxAngle` with at least `Tech.SlideMinSpeed` | New `Slide` state: slide on the ground with friction; hop out keeps speed; off a ledge → Glide |
+| Tap boost | In the air, release a dive within `Tech.TapWindow` | Glide with `+Tech.TapBoost` forward speed, costs `Tech.TapEnergyCost` energy |
+| Swoop skim | Swoop pull-up passes within `Tech.SkimHeight` of the ground | `+Tech.SkimBoost` speed and the arc levels off low instead of climbing |
+
+They chain: dive → skim → slide → hop → tap → dive. **Open for milestone 3:** §4.8 says any dive into the ground is an Impact. Proposed: steep dives smash, shallow ones do a small smash and then slide.
+
+**World readability.** The disc has a two-scale grid (16 and 128 studs) and the player has a client-only blob shadow straight below (`GroundShadow`) that shrinks and fades with height, so height above the ground is always readable.
+
+**Studio-only test tools.** F2 tuning panel (sliders, "Print changes", drop-from-altitude buttons). F3 controls and tech cheat sheet with a live readout of state, speed, height and glide energy. The current movement state is also exposed as the local player's `MovementState` attribute.
+
+**Engine note.** This Studio build no longer places `PlayerModule` in PlayerScripts, so movement input is read directly from the keyboard and gamepad (`Movement/Input.luau`); the Humanoid's default walking still works.

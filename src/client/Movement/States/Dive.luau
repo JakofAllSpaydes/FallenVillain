@@ -1,0 +1,77 @@
+--!strict
+-- Aimed dive (spec §3): snap toward the aim point, thrust plus ramping gravity, steer within a cone that widens
+-- the longer the hold. Release converts to Swoop above the entry speed, else Glide.
+
+local Shared = game:GetService("ReplicatedStorage").Shared
+local Tuning = require(Shared.Tuning)
+local Types = require(Shared.Types)
+local MathUtil = require(script.Parent.Parent.MathUtil)
+
+local Dive = { Air = true }
+
+local forced = false
+local straightDown = false
+local holdTime = 0
+local speed = 0
+local direction = -Vector3.yAxis
+local entryDirection = -Vector3.yAxis
+
+local function aimDirection(ctx: Types.Ctx): Vector3
+	if straightDown then
+		return -Vector3.yAxis
+	end
+	local toAim = ctx.AimPoint - ctx.Root.Position
+	if toAim.Magnitude < 1e-3 then
+		return direction
+	end
+	return MathUtil.clampPitch(toAim.Unit, Tuning.Dive.MaxPitch, ctx.Heading)
+end
+
+local function ramp(from: number, to: number, time: number): number
+	return from + (to - from) * math.clamp(holdTime / time, 0, 1)
+end
+
+function Dive.enter(ctx: Types.Ctx, payload: any)
+	forced = payload ~= nil and payload.Forced == true
+	straightDown = payload ~= nil and payload.StraightDown == true
+	holdTime = 0
+	direction = aimDirection(ctx)
+	entryDirection = direction
+	speed = math.max(0, ctx.Velocity:Dot(direction))
+	ctx.Bank = 0
+end
+
+function Dive.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
+	local T = Tuning.Dive
+	if not forced and not ctx.Input.PrimaryHeld then
+		if holdTime <= Tuning.Tech.TapWindow then
+			return "Glide", { TapBoost = true }
+		end
+		local S = Tuning.Swoop
+		if speed >= S.MinEntrySpeed and ctx.Now >= ctx.SwoopReadyAt and ctx.GlideEnergy >= S.EnergyCost then
+			return "Swoop", nil
+		end
+		return "Glide", nil
+	end
+
+	holdTime += dt
+	local cone = math.rad(ramp(T.ConeStart, T.ConeEnd, T.ConeWidenTime))
+	local target = MathUtil.rotateTowards(entryDirection, aimDirection(ctx), cone)
+	direction = MathUtil.rotateTowards(direction, target, math.rad(T.SteerRate) * dt)
+
+	-- Read back so walls and collisions take speed away.
+	speed = math.clamp(ctx.Velocity:Dot(direction), 0, speed)
+	local gravity = ramp(Tuning.Gravity.DiveStart, Tuning.Gravity.DiveEnd, Tuning.Gravity.DiveRampTime)
+	speed += (T.Thrust - gravity * direction.Y) * dt
+	speed = math.clamp(speed, 0, ramp(T.TerminalStart, T.TerminalEnd, T.TerminalRampTime))
+
+	local flat = MathUtil.flat(direction)
+	if flat.Magnitude > 0.05 then
+		ctx.Heading = flat.Unit
+	end
+	ctx.Velocity = direction * speed
+	ctx.BodyDirection = direction
+	return nil
+end
+
+return Dive

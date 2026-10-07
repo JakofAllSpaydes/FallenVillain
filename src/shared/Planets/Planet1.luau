@@ -4,6 +4,7 @@
 return {
 	Name = "Planet1",
 	Seed = 1,
+	SurfaceY = 0,
 	DiscDiameter = 1200,
 	EdgeCurve = 100,
 	ShellRadius = 1500,
