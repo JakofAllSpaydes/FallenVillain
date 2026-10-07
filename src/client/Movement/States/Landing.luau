@@ -10,7 +10,7 @@ local GroundHold = require(script.Parent.Parent.GroundHold)
 local JumpCheck = require(script.Parent.Parent.JumpCheck)
 local MathUtil = require(script.Parent.Parent.MathUtil)
 
-local Landing = { Air = true, SkipTouchdown = true, Punch = "Ground" }
+local Landing = { Air = true, SkipTouchdown = true, OnGround = true, Punch = "Ground" }
 
 function Landing.enter(ctx: Types.Ctx, _payload: any)
 	ctx.Velocity = ctx.LandVelocity
@@ -25,7 +25,6 @@ function Landing.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 		return jump, payload
 	end
 	if not GroundHold.step(ctx, dt, L.Damping, 1) then
-		JumpCheck.reset()
 		return "Glide", nil
 	end
 	local excess = MathUtil.flat(ctx.Velocity).Magnitude - Tuning.Walk.Speed

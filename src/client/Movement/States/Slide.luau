@@ -10,7 +10,7 @@ local Types = require(Shared.Types)
 local JumpCheck = require(script.Parent.Parent.JumpCheck)
 local MathUtil = require(script.Parent.Parent.MathUtil)
 
-local Slide = { Air = true, SkipTouchdown = true, Punch = "Ground" }
+local Slide = { Air = true, SkipTouchdown = true, OnGround = true, Punch = "Ground" }
 
 local speed = 0
 
@@ -35,7 +35,6 @@ function Slide.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 	local probe = -Vector3.yAxis * (ctx.StandHeight + Tuning.Physics.GroundHoldProbe)
 	local ground = workspace:Raycast(ctx.Root.Position, probe, ctx.RaycastParams)
 	if not ground then
-		JumpCheck.reset()
 		return "Glide", nil
 	end
 

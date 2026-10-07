@@ -8,7 +8,7 @@ local JumpCheck = require(script.Parent.Parent.JumpCheck)
 local MathUtil = require(script.Parent.Parent.MathUtil)
 local Punch = require(script.Parent.Parent.Punch)
 
-local Grounded = { Air = false, Punch = "Ground" }
+local Grounded = { Air = false, OnGround = true, Punch = "Ground" }
 
 local airborneTime = 0
 
@@ -33,7 +33,6 @@ function Grounded.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any
 		if airborneTime >= Tuning.Physics.AirborneGraceTime then
 			local probe = -Vector3.yAxis * (ctx.StandHeight + Tuning.Physics.GroundRayLength)
 			if not workspace:Raycast(ctx.Root.Position, probe, ctx.RaycastParams) then
-				JumpCheck.reset()
 				return "Glide", nil
 			end
 		end

@@ -37,6 +37,7 @@ local SECTIONS: { Section } = {
 		Title = "TRICKS",
 		Rows = {
 			{ Keys = { "LAND", "SPACE" }, Label = "Bunny hop" },
+			{ Keys = { "AIR", "HOLD", "SPACE" }, Label = "Pre-charge" },
 			{ Keys = { "DIVE", "FLAT" }, Label = "Slide" },
 			{ Keys = { "LMB", "AT GROUND" }, Label = "Rocket jump" },
 			{ Keys = { "SPACE", "LMB" }, Label = "Jump punch" },

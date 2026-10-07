@@ -15,6 +15,7 @@ local Types = require(Shared.Types)
 
 local Aim = require(script.Parent.Aim)
 local Input = require(script.Parent.Input)
+local JumpCheck = require(script.Parent.JumpCheck)
 local MathUtil = require(script.Parent.MathUtil)
 local Punch = require(script.Parent.Punch)
 local TimeScale = require(script.Parent.Parent.Feel.TimeScale)
@@ -233,6 +234,7 @@ local function step(dt: number)
 	end
 
 	local state = States[ctx.State]
+	JumpCheck.track(ctx, dt, state.OnGround == true)
 	local punchState, punchPayload = Punch.update(ctx, state.Punch, dt)
 	if punchState then
 		transition(ctx, punchState, punchPayload)
@@ -247,6 +249,7 @@ local function step(dt: number)
 		return
 	end
 
+	Punch.decay(ctx, dt)
 	applyCeiling(ctx)
 	local bouncedAt = bounceOffWalls(ctx, dt)
 	if bouncedAt then
@@ -342,6 +345,8 @@ local function attach(character: Model)
 		Power = persistentPower,
 		PunchHold = nil,
 		PunchReadyAt = 0,
+		PunchBoost = Vector3.zero,
+		PunchBoostRate = 0,
 		TimeScale = 1,
 	}
 	States.Grounded.enter(ctx, nil)

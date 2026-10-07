@@ -60,12 +60,15 @@ export type Ctx = {
 	Power: number, -- upgrade level 1–25; sets Burst velocity
 	PunchHold: number?, -- seconds LMB has been held, nil when not charging a punch
 	PunchReadyAt: number,
+	PunchBoost: Vector3, -- speed a punch added that hasn't decayed yet
+	PunchBoostRate: number, -- 1/seconds that boost decays at
 	TimeScale: number, -- hitstop and slow-mo multiplier on dt this frame
 }
 
 export type StateModule = {
 	Air: boolean,
 	SkipTouchdown: boolean?, -- controller-driven on the ground (Slide): no touchdown check
+	OnGround: boolean?, -- a ground state: Space holds here count toward the Burst charge (JumpCheck)
 	Punch: ("Ground" | "Air")?, -- what an LMB release does here; nil = the punch is dropped
 	enter: (ctx: Ctx, payload: any) -> (),
 	update: (ctx: Ctx, dt: number) -> (MovementState?, any),

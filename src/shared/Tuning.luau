@@ -55,6 +55,8 @@ local Tuning = {
 		MaxLaunchSpeed = 520,
 		DashTapSpeed = 80, -- dash added by a tap punch
 		DashFullSpeed = 240, -- dash added by a fully charged punch
+		DashDecayTap = 12, -- 1/seconds a tap punch's added speed dies off at: a sharp jab
+		DashDecayFull = 1.5, -- a fully charged punch's added speed lasts much longer
 		DashKeepSideways = 0.3, -- share of velocity across the dash direction that survives it
 		MaxDashSpeed = 320,
 		GroundDashLift = 35, -- a ground dash always leaves the ground with at least this much upward speed
@@ -500,6 +502,12 @@ local Tuning = {
 		PunchWheelThickness = 4,
 		PunchWheelTrackTransparency = 0.75,
 		PunchWheelFade = 0.2,
+		JumpWheelSize = 48,
+		JumpWheelInnerScale = 0.62, -- inner (hop) ring size relative to the outer (Burst) ring
+		JumpWheelThickness = 4,
+		JumpWheelHeight = 4.5, -- studs above the root
+		JumpWheelTrackTransparency = 0.75,
+		JumpWheelFade = 0.2,
 	},
 
 	Dev = {
