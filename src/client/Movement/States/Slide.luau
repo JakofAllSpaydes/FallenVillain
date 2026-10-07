@@ -1,7 +1,8 @@
 --!strict
 -- Dive-slide (movement tech): touching down from Dive or Swoop at a shallow angle and speed keeps the momentum
 -- as a ground slide instead of stopping. Friction bleeds it; hopping out keeps it (inside the chain window
--- it counts as a perfect hop); holding Space stops the slide and charges a Burst. Slides off a ledge into Glide; settles into Grounded when slow.
+-- it counts as a perfect hop); holding Space charges a Burst. Friction is high, so it is a short burst.
+-- Slides off a ledge into Glide; settles into Landing when slow.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Tuning = require(Shared.Tuning)
@@ -31,7 +32,7 @@ function Slide.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 		return jump, jumpPayload
 	end
 
-	local probe = -Vector3.yAxis * (ctx.StandHeight + T.SlideGroundProbe)
+	local probe = -Vector3.yAxis * (ctx.StandHeight + Tuning.Physics.GroundHoldProbe)
 	local ground = workspace:Raycast(ctx.Root.Position, probe, ctx.RaycastParams)
 	if not ground then
 		JumpCheck.reset()
@@ -44,7 +45,8 @@ function Slide.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 	speed = math.min(speed, math.max(0, MathUtil.flat(ctx.Velocity):Dot(ctx.Heading)))
 	speed = MathUtil.moveToward(speed, 0, T.SlideFriction * dt)
 	if speed < T.SlideExitSpeed then
-		return "Grounded", nil
+		ctx.LandVelocity = ctx.Heading * speed
+		return "Landing", nil
 	end
 
 	-- Hold the root at standing height over the ground so the slide follows it.

@@ -1,12 +1,14 @@
 --!strict
 -- LMB punch (spec §15, milestone 2). Holding charges it in any state without locking movement; while charging,
--- walk, hop and glide speed take a small cut. Releasing always does something and cancels whatever you were
--- doing (Charging, Burst, Dive, Glide...):
---   * a surface under the crosshair within Reach: rocket jump, pushing you away from it along the opposite of
---     the aim (straight down pops you straight up). Always at least a small bounce; much stronger point blank,
---     where it also bounces back the speed you were moving into the surface. From the ground (no momentum to reflect) it is weaker (GroundedMult).
---   * otherwise: a dash toward the crosshair, from a tap's burst up to a big charged lunge. On the ground a
---     level dash is a slide; one aimed upward leaves the ground.
+-- walk, hop and glide speed take a small cut. Releasing always fires and cancels whatever you were doing
+-- (Charging, Burst, Dive, Glide...). Every punch is a burst of speed; the rocket jump is an extra on top that
+-- only happens when you mean it:
+--   * dash: toward the crosshair, from a tap's burst up to a big charged lunge. From the ground it always lifts
+--     off a little, so gravity carries it into a hop rather than a slide.
+--   * rocket jump (like TF2): aim steeply at a surface (at least Punch.RocketMinAngle below level) within Reach.
+--     It pushes you away along the opposite of the aim, plus a share of the forward burst along your facing, so
+--     straight down pops you up and forward. Much stronger point blank, where it also bounces back the speed
+--     you were moving into the surface; from the ground (no momentum to reflect) it is weaker (GroundedMult).
 -- The controller calls `update` before the state runs; it returns the transition when the punch fires.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
@@ -32,6 +34,9 @@ local function rocket(ctx: Types.Ctx, charge: number, grounded: boolean): (Vecto
 		return nil, nil
 	end
 	local into = toAim.Unit
+	if into.Y > -math.sin(math.rad(P.RocketMinAngle)) then
+		return nil, nil
+	end
 	local hit = workspace:Raycast(ctx.Root.Position, into * (P.Reach + ctx.StandHeight), ctx.RaycastParams)
 	if not hit then
 		return nil, nil
@@ -53,6 +58,11 @@ local function rocket(ctx: Types.Ctx, charge: number, grounded: boolean): (Vecto
 	return velocity, hit.Position
 end
 
+local function boostFor(charge: number): number
+	local P = Tuning.Punch
+	return P.DashTapSpeed + (P.DashFullSpeed - P.DashTapSpeed) * charge
+end
+
 local function dash(ctx: Types.Ctx, charge: number): Vector3
 	local P = Tuning.Punch
 	local toAim = ctx.AimPoint - ctx.Root.Position
@@ -61,7 +71,7 @@ local function dash(ctx: Types.Ctx, charge: number): Vector3
 	-- Keep the speed already going this way, trim the rest, then add the lunge.
 	local along = math.max(0, ctx.Velocity:Dot(direction))
 	local across = ctx.Velocity - direction * ctx.Velocity:Dot(direction)
-	local boost = P.DashTapSpeed + (P.DashFullSpeed - P.DashTapSpeed) * charge
+	local boost = boostFor(charge)
 	local velocity = direction * (along + boost) + across * P.DashKeepSideways
 	local cap = math.max(ctx.Velocity.Magnitude, P.MaxDashSpeed)
 	if velocity.Magnitude > cap then
@@ -86,6 +96,17 @@ function Punch.update(ctx: Types.Ctx, mode: ("Ground" | "Air")?, dt: number): (T
 
 	local launch, at = rocket(ctx, charge, grounded)
 	if launch and at then
+		-- The forward burst still happens, along your facing; the bounce rides on top of it.
+		local P = Tuning.Punch
+		local forward = MathUtil.flat(ctx.LookDirection)
+		if forward.Magnitude > 1e-3 then
+			launch += forward.Unit * boostFor(charge) * P.RocketForwardShare
+		end
+		local cap = math.max(ctx.Velocity.Magnitude, P.MaxLaunchSpeed)
+		if launch.Magnitude > cap then
+			launch = launch.Unit * cap
+		end
+		ctx.GlideEnergy = math.max(0, ctx.GlideEnergy - P.DashEnergyCost * charge)
 		ctx.Velocity = launch
 		Punch.Fired:Fire("Rocket", charge, at)
 		return "Hop", { Launch = true }
@@ -97,12 +118,8 @@ function Punch.update(ctx: Types.Ctx, mode: ("Ground" | "Air")?, dt: number): (T
 	if not grounded then
 		return "Glide", nil
 	end
-	-- From the ground: a level lunge slides, one aimed upward takes off.
-	if velocity.Unit.Y > Tuning.Punch.GroundLiftThreshold then
-		return "Hop", { Launch = true }
-	end
-	ctx.LandVelocity = MathUtil.flat(velocity)
-	return "Slide", nil
+	ctx.Velocity = MathUtil.flat(velocity) + Vector3.yAxis * math.max(velocity.Y, Tuning.Punch.GroundDashLift)
+	return "Hop", { Launch = true }
 end
 
 return Punch

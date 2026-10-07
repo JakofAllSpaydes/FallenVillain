@@ -23,7 +23,7 @@ local function launch(ctx: Types.Ctx)
 	ctx.FallPeak = ctx.Altitude + vy * vy / (2 * Tuning.Gravity.Hop)
 end
 
-local function hop(ctx: Types.Ctx, pressedAt: number)
+local function hop(ctx: Types.Ctx, pressedAt: number, charge: number)
 	local T = Tuning.Hop
 	if pressedAt - ctx.LastLandTime <= T.ChainWindow then
 		ctx.HopChain = math.min(ctx.HopChain + 1, T.MaxChain)
@@ -31,7 +31,9 @@ local function hop(ctx: Types.Ctx, pressedAt: number)
 		ctx.HopChain = 0
 	end
 	local chainMult = 1 + T.ChainBonus * ctx.HopChain
-	local height = T.Height * chainMult * Punch.slow(ctx, Tuning.Punch.ChargeHopMult)
+	local height = (T.Height + (T.ChargedHeight - T.Height) * charge)
+		* chainMult
+		* Punch.slow(ctx, Tuning.Punch.ChargeHopMult)
 
 	-- Perfect bunny hop: a chain hop keeps the speed you landed with (or are sliding with) plus a bonus and a
 	-- forward kick, so a good rhythm builds speed. Capped by Tech.MaxCarrySpeed.
@@ -55,7 +57,8 @@ function Hop.enter(ctx: Types.Ctx, payload: any)
 	if payload ~= nil and payload.Launch then
 		launch(ctx)
 	else
-		hop(ctx, if payload ~= nil and payload.PressedAt then payload.PressedAt else ctx.Now)
+		local pressedAt = if payload ~= nil and payload.PressedAt then payload.PressedAt else ctx.Now
+		hop(ctx, pressedAt, if payload ~= nil and payload.Charge then payload.Charge else 0)
 	end
 	floating = false
 	falling = false

@@ -192,11 +192,11 @@ local function findTouchdown(ctx: Types.Ctx, dt: number): RaycastResult?
 	return nil
 end
 
--- Dive-slide: a fast, shallow touchdown out of Dive, Swoop or a fast Hop keeps its momentum on the ground.
+-- Dive-slide: a fast, shallow touchdown out of Dive or Swoop keeps its momentum on the ground.
 -- Call before placeOnGround; uses LandVelocity and the pre-touchdown velocity.
 local function canSlide(ctx: Types.Ctx, speed: number): boolean
 	local T = Tuning.Tech
-	if ctx.State ~= "Dive" and ctx.State ~= "Swoop" and ctx.State ~= "Hop" then
+	if ctx.State ~= "Dive" and ctx.State ~= "Swoop" then
 		return false
 	end
 	if ctx.LandVelocity.Magnitude < T.SlideMinSpeed or speed < 1e-3 then

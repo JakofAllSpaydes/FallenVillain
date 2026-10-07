@@ -22,8 +22,10 @@ local Tuning = {
 	},
 
 	Hop = {
-		Height = 12, -- a little over a default Roblox jump (7.2)
-		TapTime = 0.15, -- on the ground, Space released sooner is a hop; held longer always charges a Burst
+		Height = 12, -- tap hop: a little over a default Roblox jump (7.2)
+		ChargedHeight = 30, -- hop released just before HoldTime
+		TapTime = 0.1, -- holds shorter than this are a plain tap
+		HoldTime = 1, -- holding Space this long on the ground starts Charging a Burst instead
 		ApexFloatTime = 0.35,
 		ChainWindow = 0.2,
 		ChainBonus = 0.35, -- extra height per chained hop
@@ -42,7 +44,9 @@ local Tuning = {
 		ChargeWalkMult = 0.8,
 		ChargeHopMult = 0.85,
 		ChargeGlideMult = 0.9,
-		Reach = 60, -- clearance in studs within which a surface under the crosshair bounces you instead of a dash
+		Reach = 60, -- clearance in studs within which a steep punch at a surface rocket-jumps
+		RocketMinAngle = 45, -- degrees below level the aim must be for a rocket jump; shallower is just a dash
+		RocketForwardShare = 0.6, -- share of the dash burst a rocket jump adds along your facing
 		ProximityExponent = 4, -- higher makes the point-blank sweet spot sharper
 		MinProximity = 0.2, -- a punch at the edge of Reach still bounces this much
 		Impulse = 320, -- launch speed of a full punch at point blank with no momentum
@@ -53,7 +57,7 @@ local Tuning = {
 		DashFullSpeed = 240, -- dash added by a fully charged punch
 		DashKeepSideways = 0.3, -- share of velocity across the dash direction that survives it
 		MaxDashSpeed = 320,
-		GroundLiftThreshold = 0.3, -- a ground dash aimed above this (sine of the angle) leaves the ground; below, it slides
+		GroundDashLift = 35, -- a ground dash always leaves the ground with at least this much upward speed
 		DashEnergyCost = 10,
 		Cooldown = 0.25,
 	},
@@ -65,8 +69,7 @@ local Tuning = {
 		-- Height reached for a Space hold of N seconds (from the press), interpolated geometrically between points
 		-- so it starts gentle and climbs harder the longer you hold. Power caps it.
 		HoldHeights = {
-			{ 0, 60 },
-			{ 1, 80 },
+			{ 1, 60 },
 			{ 3, 250 },
 			{ 5, 450 },
 			{ 10, 1000 },
@@ -89,6 +92,17 @@ local Tuning = {
 		MinTime = 0.4, -- small Bursts hang for Time scaled by their feel charge, never less than this
 		DriftSpeed = 8,
 		DriftAccel = 12,
+	},
+
+	Charging = {
+		Damping = 4, -- 1/seconds; momentum bleeds off hard while charging instead of stopping dead
+	},
+
+	Landing = {
+		Damping = 6, -- 1/seconds; touchdown momentum bleeds toward walking
+		MinTime = 0.15,
+		MaxTime = 0.8,
+		SettleSpeed = 4, -- hand over to walking once within this much of walk speed
 	},
 
 	Glide = {
@@ -149,7 +163,6 @@ local Tuning = {
 
 	Impact = {
 		RecoveryTime = 0.4,
-		LandingTime = 0.8,
 		RadiusBase = 6,
 		RadiusSpeedDivisor = 8,
 		DamagePerSpeed = 2,
@@ -211,6 +224,7 @@ local Tuning = {
 		AlignResponsiveness = 40,
 		AlignMaxTorque = 1e7,
 		BounceRestitution = 0.7, -- share of the speed into a non-destructible wall that bounces back
+		GroundHoldProbe = 4, -- how far below standing height ground states look for the floor
 		BounceProbe = 2, -- studs beyond this frame's travel to look for walls
 	},
 
@@ -226,10 +240,9 @@ local Tuning = {
 		SlideMinSpeed = 60,
 		SlideMaxAngle = 45, -- degrees below horizontal; steeper touchdowns land instead of sliding
 		SlideKeep = 0.95,
-		SlideFriction = 45,
+		SlideFriction = 110, -- high so a dive-slide is a short burst, not a glide along the ground
 		SlideExitSpeed = 25,
 		SlideYawRate = 60,
-		SlideGroundProbe = 4,
 		SlideLean = 35, -- degrees the body leans back while sliding
 		SkimHeight = 25, -- a swoop arc passing this close to the ground skims
 		SkimBoost = 0.2,
