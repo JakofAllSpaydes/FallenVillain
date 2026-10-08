@@ -46,8 +46,20 @@ Controller.StateChanged = Signal.new() :: Signal.Signal<Types.MovementState, Typ
 Controller.ctx = nil :: Types.Ctx?
 -- (position, speed before the bounce) whenever the bounce rule throws the player off a wall or the ground
 Controller.Bounced = Signal.new() :: Signal.Signal<Vector3, number>
+-- (position, speed, radius, direct, force, effort) when a dive smashes into the ground or, with `direct`, into
+-- that destructible mid-air (spec §4.8); `force` is the attack multiplier on the speed's hits and `effort` the
+-- speed scaled by how much the object resisted (0 when it gave way easily, the full speed when it stood), which
+-- the structure's impact feel follows. Combat/Smash reports it; Juice plays the structure impact frame.
+Controller.Smashed = Signal.new() :: Signal.Signal<Vector3, number, number, Model?, number, number>
+-- (model, position, speed, force, effort) when flying into a destructible without diving: it hits what it touched.
+Controller.HitObject = Signal.new() :: Signal.Signal<Model, Vector3, number, number, number>
 
 local persistentPower = 1
+local recentHits: { [Model]: number } = {} -- last contact time per destructible, for Smash.RehitTime
+-- Damage this client expects it has dealt each destructible, to predict whether a contact breaks through or
+-- bounces (the server decides the real break). Destruction resets it on every break and rebuild.
+local predictedDamage: { [Model]: number } = {}
+local predictedBroken: { [Model]: boolean } = {}
 local appliedScale = 1 -- time scale the last velocity handed to physics was multiplied by
 local appliedTilt = CFrame.identity -- arc correction the last velocity handed to physics was rotated by
 local traceFrames = 0
@@ -174,8 +186,84 @@ local function reflect(ctx: Types.Ctx, normal: Vector3): boolean
 	return true
 end
 
--- The bounce rule (spec §15): anything that isn't destructible bounces you. Destructibles don't; milestone 4
--- breaks them instead. Ground is a landing, not a bounce. Returns where it bounced, if it did.
+local function smashRadius(speed: number): number
+	local I = Tuning.Impact
+	return I.RadiusBase + speed / I.RadiusSpeedDivisor
+end
+
+-- The attack multiplier on a contact's hits: a dive, and a punch held or just fired (spec §15 milestone 4).
+local function contactForce(ctx: Types.Ctx): number
+	local S = Tuning.Smash
+	local force = if ctx.State == "Dive" then S.DiveMult else 1
+	if ctx.Input.PrimaryHeld or ctx.Now < ctx.PunchFiredAt + S.PunchWindow then
+		force *= S.PunchMult
+	end
+	return force
+end
+
+-- Hits a destructible can take: its catalog Health, growing with its size (Smash.HealthBySize).
+local function healthOf(model: Model): number
+	local entry = Destructibles.entryOf(model)
+	return (if entry then entry.Health else 1) * model:GetScale() ^ Tuning.Smash.HealthBySize
+end
+
+-- Contact with a destructible (spec §15 milestone 4). Below Smash.MinSpeed it is solid like any wall. Faster,
+-- it takes speed / SpeedPerHit hits times the attack force; if this client expects that to finish it (its
+-- health against the damage dealt so far) you break through, losing a share of your speed in proportion to how
+-- close it was (weight), and a dive also smashes everything around the contact point. Otherwise it stands and
+-- you bounce off it, and it keeps the damage. Returns whether you broke through. Each object counts once per
+-- Smash.RehitTime, so passing through something doesn't hit it every frame.
+local function contactDestructible(ctx: Types.Ctx, model: Model, position: Vector3): boolean
+	local S = Tuning.Smash
+	local speed = ctx.Velocity.Magnitude
+	if speed < S.MinSpeed then
+		return false
+	end
+	local last = recentHits[model]
+	if last and ctx.Now - last < S.RehitTime then
+		return predictedBroken[model] == true
+	end
+	for other, at in recentHits do
+		if ctx.Now - at >= S.RehitTime then
+			recentHits[other] = nil
+		end
+	end
+	recentHits[model] = ctx.Now
+	local force = contactForce(ctx)
+	local hits = speed / S.SpeedPerHit * force
+	local remaining = healthOf(model) - (predictedDamage[model] or 0)
+	predictedDamage[model] = (predictedDamage[model] or 0) + hits
+	-- Health decides, with the punch as a force multiplier (review note: a tap punch shouldn't level a tower; it
+	-- has to be gradual with the charge). A tap clears trees and houses; a few seconds of charge opens towers.
+	local breaks = hits >= remaining
+	predictedBroken[model] = breaks
+	-- How much it resisted: nothing for a tree under a charged punch, everything for a wall that stops you.
+	-- The feel and the speed you lose both follow it, so cutting through a cluster at speed stays smooth
+	-- (review note: it must be gradual with the charge, not a switch).
+	local resistance = if breaks then math.clamp(remaining / math.max(hits, 1e-3), 0, 1) else 1
+	local effort = speed * resistance
+	if ctx.State == "Dive" then
+		trace(ctx, if breaks then "smashed through a structure" else "smashed into a structure")
+		Controller.Smashed:Fire(position, speed, smashRadius(speed), model, force, effort)
+	else
+		trace(ctx, if breaks then "broke through a destructible" else "hit a destructible")
+		Controller.HitObject:Fire(model, position, speed, force, effort)
+	end
+	if breaks then
+		ctx.Velocity *= 1 - S.PassLoss * resistance
+	end
+	return breaks
+end
+
+-- Destruction calls this when the server breaks or rebuilds an object, so predictions start fresh.
+function Controller.resetDamage(model: Model)
+	predictedDamage[model] = nil
+	predictedBroken[model] = nil
+	recentHits[model] = nil
+end
+
+-- The bounce rule (spec §15): anything that isn't destructible bounces you; destructibles break instead.
+-- Ground is a landing, not a bounce. Returns where it bounced, if it did.
 local function bounceOffWalls(ctx: Types.Ctx, dt: number): Vector3?
 	local speed = ctx.Velocity.Magnitude
 	if speed < 1 then
@@ -184,15 +272,40 @@ local function bounceOffWalls(ctx: Types.Ctx, dt: number): Vector3?
 	local position = ctx.Root.Position
 	local reach = ctx.Velocity.Unit * (speed * dt + Tuning.Physics.BounceProbe)
 	local hit = Globe.raycast(position, reach, ctx.RaycastParams)
-	if
-		hit
-		and hit.Normal:Dot(ctx.Up) < Tuning.Physics.MinGroundNormalY
-		and not (hit.Instance and Destructibles.isDestructible(hit.Instance))
-		and reflect(ctx, hit.Normal)
-	then
+	if not hit or hit.Normal:Dot(ctx.Up) >= Tuning.Physics.MinGroundNormalY then
+		return nil
+	end
+	local model = Destructibles.modelOf(hit.Instance)
+	if model and contactDestructible(ctx, model, hit.Position) then
+		return nil
+	end
+	if reflect(ctx, hit.Normal) then
 		return hit.Position
 	end
 	return nil
+end
+
+-- Ground states don't bounce: walking into a wall (or a destructible you're too slow to break) slides along
+-- it, keeping only the velocity across its face. A fast ground contact still hits a destructible.
+local function slideAlongWalls(ctx: Types.Ctx, dt: number)
+	local level = MathUtil.flat(ctx.Velocity, ctx.Up)
+	local speed = level.Magnitude
+	if speed < 1 then
+		return
+	end
+	local reach = level.Unit * (speed * dt + Tuning.Physics.BounceProbe)
+	local hit = Globe.raycast(ctx.Root.Position, reach, ctx.RaycastParams)
+	if not hit or hit.Normal:Dot(ctx.Up) >= Tuning.Physics.MinGroundNormalY then
+		return
+	end
+	local model = Destructibles.modelOf(hit.Instance)
+	if model and contactDestructible(ctx, model, hit.Position) then
+		return
+	end
+	local into = ctx.Velocity:Dot(hit.Normal)
+	if into < 0 then
+		ctx.Velocity -= hit.Normal * into
+	end
 end
 
 -- Predicts ground contact this frame so even terminal-speed dives never tunnel through the surface.
@@ -296,7 +409,9 @@ local function step(dt: number)
 	end
 
 	applyCeiling(ctx)
-	if not state.NoBounce then
+	if state.NoBounce then
+		slideAlongWalls(ctx, dt)
+	else
 		local speedBefore = ctx.Velocity.Magnitude
 		local bouncedAt = bounceOffWalls(ctx, dt)
 		if bouncedAt then
@@ -329,6 +444,24 @@ local function step(dt: number)
 			Controller.Bounced:Fire(ground.Position, into)
 			transition(ctx, "Hop", { Launch = true, Speed = into })
 			return
+		end
+	end
+	if ground then
+		local speed = ctx.Velocity.Magnitude
+		local model = Destructibles.modelOf(ground.Instance)
+		if model then
+			-- Touching down on a destructible at speed (a canopy top, a roof) is a contact, not a landing: finish
+			-- it and keep flying (the other half of the bounce rule); if it holds, or you're slow, land on it.
+			-- (Review note: fast flights across tree clusters were "landing" on every canopy and staggering.)
+			if contactDestructible(ctx, model, ground.Position) then
+				writeVelocity(ctx, dt)
+				ctx.Align.CFrame = bodyOrientation(ctx)
+				return
+			end
+		elseif ctx.State == "Dive" and speed >= Tuning.Smash.MinSpeed then
+			-- The ground smash (spec §4.8): the touchdown juice plays through Landing/Slide; this only reports it.
+			trace(ctx, "smashed the ground")
+			Controller.Smashed:Fire(ground.Position, speed, smashRadius(speed), nil, contactForce(ctx), speed)
 		end
 	end
 	if ground then
@@ -369,7 +502,7 @@ local function attach(character: Model)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { character }
-	params.CollisionGroup = "Characters"
+	params.CollisionGroup = "MovementRays" -- sees the world, never a character (registered by the server)
 
 	local up = MathUtil.upAt(root.Position)
 	local ctx: Types.Ctx = {
@@ -407,6 +540,7 @@ local function attach(character: Model)
 		Power = persistentPower,
 		PunchHold = nil,
 		PunchReadyAt = 0,
+		PunchFiredAt = -math.huge,
 		LookFollowAfter = 0,
 		TimeScale = 1,
 	}
@@ -439,6 +573,26 @@ function Controller.drop(altitude: number)
 	transition(ctx, "Glide", nil)
 end
 
+-- Dev hook (Studio F4): smash the ground under the player at Dev.TestSmashSpeed, as if a dive had landed there.
+function Controller.testSmash()
+	local ctx = Controller.ctx
+	if not ctx then
+		return
+	end
+	local ground = Globe.raycast(ctx.Root.Position, -ctx.Up * Tuning.Vfx.GroundProbe, ctx.RaycastParams)
+	if ground then
+		local speed = Tuning.Dev.TestSmashSpeed
+		Controller.Smashed:Fire(
+			ground.Position,
+			speed,
+			smashRadius(speed),
+			Destructibles.modelOf(ground.Instance),
+			Tuning.Smash.DiveMult,
+			speed
+		)
+	end
+end
+
 -- Dev panel hook: set the Power level.
 function Controller.setPower(power: number)
 	persistentPower = power
@@ -449,6 +603,10 @@ end
 
 function Controller.start()
 	Input.start()
+	-- A rocket punch pounds the surface it fires off, with the punch's force; the strength stands in for speed.
+	Punch.GroundPound:Connect(function(position, strength, model)
+		Controller.Smashed:Fire(position, strength, smashRadius(strength), model, Tuning.Smash.PunchMult, strength)
+	end)
 	local player = Players.LocalPlayer
 	player.CharacterAdded:Connect(attach)
 	if player.Character then

@@ -16,37 +16,105 @@ local function join(...: FeelList): FeelList
 	return out
 end
 
--- Touchdown juice shared by Landing and Slide (spec §4.8, scaled down to a landing until Impact exists in
--- milestone 4). bySpeed entries scale with the touchdown speed up to fullSpeed; minSpeed gates them, so a hop
--- landing is a soft thud and a dive from altitude is a hitstop, a flash, a ring, a crater and flying debris.
+-- Touchdown and smash juice shared by Landing, Slide and a mid-air Smash (spec §4.8). bySpeed entries scale with
+-- the contact speed from minSpeed to fullSpeed (review note: a mach-10 crash must feel far bigger than a hop):
+-- the ordinary layer tops out at IMPACT_FULL, and a heavy layer keeps growing from HEAVY_MIN to HEAVY_FULL. A hop
+-- landing is a soft thud; a dive from altitude is a hitstop, a flash, rings, a crater and flying debris; a
+-- hypersonic crash is a longer freeze, a harder and longer shake, a wider third ring and a wall of debris.
+local IMPACT_FULL = 900
+local HEAVY_MIN, HEAVY_FULL = 600, 2000
+-- A plain dive landing pounds at this share of the full radius (review note: too strong); a punch into the
+-- ground gets the full one. Mirrored in Impact.PlainPoundScale for the server and the juice.
+local PLAIN_POUND_SCALE = 0.7
+
+-- A copy of a feel list with its smash-radius multiples scaled (the punch pound's full-size rings).
+local function scaleRadii(list: FeelList, factor: number): FeelList
+	local scaled = {}
+	for _, entry in list do
+		if entry.bySmashRadius then
+			local copy = table.clone(entry)
+			copy.radius = (copy.radius or 1) * factor
+			table.insert(scaled, copy)
+		else
+			table.insert(scaled, entry)
+		end
+	end
+	return scaled
+end
 local TOUCHDOWN: FeelList = {
 	-- Every landing: a thud, a puff, a little camera dip.
 	{ sound = "Land", volume = 1, bySpeed = true, minSpeed = 0, fullSpeed = 120 },
 	{ spawn = "Dust", count = 40, bySpeed = true, minSpeed = 20, fullSpeed = 250 },
-	{ cam = "shake", kick = 1.4, freq = 40, dur = 0.5, curve = "expo", bySpeed = true, minSpeed = 60, fullSpeed = 450 },
-	{ cam = "recoilDown", kick = 1.5, dur = 0.35, curve = "spring", bySpeed = true, minSpeed = 60, fullSpeed = 450 },
-	{ cam = "fovOffset", kick = -4, dur = 0.3, curve = "expo", bySpeed = true, minSpeed = 60, fullSpeed = 450 },
+	{
+		cam = "shake",
+		kick = 1.4,
+		freq = 40,
+		dur = 0.5,
+		curve = "expo",
+		bySpeed = true,
+		minSpeed = 60,
+		fullSpeed = IMPACT_FULL,
+	},
+	{
+		cam = "recoilDown",
+		kick = 1.5,
+		dur = 0.35,
+		curve = "spring",
+		bySpeed = true,
+		minSpeed = 60,
+		fullSpeed = IMPACT_FULL,
+	},
+	{ cam = "fovOffset", kick = -4, dur = 0.3, curve = "expo", bySpeed = true, minSpeed = 60, fullSpeed = IMPACT_FULL },
 	-- A fast dive: the impact frame (hitstop, flash, desaturation), then the world reacts.
-	{ sound = "HeavyLand", volume = 1, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
-	{ time = 0, dur = 0.18, durMin = 0.08, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
-	{ post = "Flash", kick = 0.75, dur = 0.3, curve = "expo", bySpeed = true, minSpeed = 150, fullSpeed = 450 },
-	{ post = "Saturation", kick = -0.6, dur = 0.8, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
-	{ post = "Contrast", kick = 0.2, dur = 0.5, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
-	{ post = "Vignette", kick = 0.6, dur = 0.7, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
-	{ spawn = "Flash3D", size = 30, lift = 3, dur = 0.35, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
-	{ spawn = "Shockwave", radius = 60, alpha = 0.9, dur = 0.45, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
+	{ sound = "HeavyLand", volume = 1, bySpeed = true, minSpeed = 150, fullSpeed = IMPACT_FULL },
+	{ time = 0, dur = 0.18, durMin = 0.08, bySpeed = true, minSpeed = 150, fullSpeed = IMPACT_FULL },
+	{ post = "Flash", kick = 0.75, dur = 0.3, curve = "expo", bySpeed = true, minSpeed = 150, fullSpeed = IMPACT_FULL },
+	{ post = "Saturation", kick = -0.6, dur = 0.8, bySpeed = true, minSpeed = 150, fullSpeed = IMPACT_FULL },
+	{ post = "Contrast", kick = 0.2, dur = 0.5, bySpeed = true, minSpeed = 150, fullSpeed = IMPACT_FULL },
+	{ post = "Vignette", kick = 0.6, dur = 0.7, bySpeed = true, minSpeed = 150, fullSpeed = IMPACT_FULL },
+	{ spawn = "Flash3D", size = 30, lift = 3, dur = 0.35, bySpeed = true, minSpeed = 150, fullSpeed = IMPACT_FULL },
+	-- The ground pound's rings, crater and dust wall follow the real smash radius (review note: the AOE must
+	-- visibly grow with speed), as multiples of it; bySpeed still scales their strength and counts.
 	{
 		spawn = "Shockwave",
-		radius = 95,
+		radius = 1,
+		bySmashRadius = true,
+		alpha = 0.9,
+		dur = 0.45,
+		bySpeed = true,
+		minSpeed = 150,
+		fullSpeed = IMPACT_FULL,
+	},
+	{
+		spawn = "Shockwave",
+		radius = 1.6,
+		bySmashRadius = true,
 		alpha = 0.45,
 		dur = 0.7,
 		delay = 0.08,
 		bySpeed = true,
 		minSpeed = 220,
-		fullSpeed = 450,
+		fullSpeed = IMPACT_FULL,
 	},
-	{ spawn = "DustRing", radius = 40, count = 140, delay = 0.05, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
-	{ spawn = "Crater", radius = 24, dur = 12, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
+	{
+		spawn = "DustRing",
+		radius = 0.7,
+		bySmashRadius = true,
+		count = 140,
+		delay = 0.05,
+		bySpeed = true,
+		minSpeed = 150,
+		fullSpeed = IMPACT_FULL,
+	},
+	{
+		spawn = "Crater",
+		radius = 0.45,
+		bySmashRadius = true,
+		dur = 12,
+		bySpeed = true,
+		minSpeed = 150,
+		fullSpeed = IMPACT_FULL,
+	},
 	{
 		spawn = "Debris",
 		count = 28,
@@ -56,11 +124,82 @@ local TOUCHDOWN: FeelList = {
 		life = 2.4,
 		bySpeed = true,
 		minSpeed = 150,
-		fullSpeed = 450,
+		fullSpeed = IMPACT_FULL,
 	},
-	{ spawn = "Dust", count = 120, delay = 0.05, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
-	{ cam = "distanceOffset", kick = 6, dur = 0.9, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
-	{ bus = "Ambient", kick = 0.9, dur = 0.6, bySpeed = true, minSpeed = 150, fullSpeed = 450 },
+	{ spawn = "Dust", count = 120, delay = 0.05, bySpeed = true, minSpeed = 150, fullSpeed = IMPACT_FULL },
+	{ cam = "distanceOffset", kick = 6, dur = 0.9, bySpeed = true, minSpeed = 150, fullSpeed = IMPACT_FULL },
+	{ bus = "Ambient", kick = 0.9, dur = 0.6, bySpeed = true, minSpeed = 150, fullSpeed = IMPACT_FULL },
+	{ haptic = "Rumble", kick = 1, dur = 0.35, curve = "expo", bySpeed = true, minSpeed = 60, fullSpeed = IMPACT_FULL },
+	-- The §4.8 silence: boom, then almost nothing for most of a second while the breaks arrive (Sfx stays open).
+	{ bus = "Wind", kick = 0.95, dur = 0.7, curve = "hold", bySpeed = true, minSpeed = 150, fullSpeed = IMPACT_FULL },
+	{ bus = "Music", kick = 0.95, dur = 0.7, curve = "hold", bySpeed = true, minSpeed = 150, fullSpeed = IMPACT_FULL },
+	{ bus = "Ui", kick = 0.8, dur = 0.7, curve = "hold", bySpeed = true, minSpeed = 150, fullSpeed = IMPACT_FULL },
+	-- The heavy layer: a hypersonic crash keeps growing past the ordinary one (the freeze below is the total).
+	{
+		cam = "roll",
+		kick = 4,
+		dur = 0.45,
+		curve = "spring",
+		randomSign = true,
+		bySpeed = true,
+		minSpeed = HEAVY_MIN,
+		fullSpeed = HEAVY_FULL,
+	},
+	{ time = 0, dur = 0.38, durMin = 0.18, bySpeed = true, minSpeed = HEAVY_MIN, fullSpeed = HEAVY_FULL },
+	{
+		cam = "shake",
+		kick = 1.6,
+		freq = 30,
+		dur = 1.3,
+		curve = "expo",
+		bySpeed = true,
+		minSpeed = HEAVY_MIN,
+		fullSpeed = HEAVY_FULL,
+	},
+	{
+		post = "Flash",
+		kick = 0.5,
+		dur = 0.5,
+		curve = "expo",
+		bySpeed = true,
+		minSpeed = HEAVY_MIN,
+		fullSpeed = HEAVY_FULL,
+	},
+	{ post = "Vignette", kick = 0.5, dur = 1.2, bySpeed = true, minSpeed = HEAVY_MIN, fullSpeed = HEAVY_FULL },
+	{
+		spawn = "Shockwave",
+		radius = 2.2,
+		bySmashRadius = true,
+		alpha = 0.7,
+		dur = 0.95,
+		delay = 0.12,
+		bySpeed = true,
+		minSpeed = HEAVY_MIN,
+		fullSpeed = HEAVY_FULL,
+	},
+	{
+		spawn = "DustRing",
+		radius = 1.4,
+		bySmashRadius = true,
+		count = 200,
+		delay = 0.12,
+		bySpeed = true,
+		minSpeed = HEAVY_MIN,
+		fullSpeed = HEAVY_FULL,
+	},
+	{ spawn = "Flash3D", size = 60, lift = 6, dur = 0.5, bySpeed = true, minSpeed = HEAVY_MIN, fullSpeed = HEAVY_FULL },
+	{
+		spawn = "Debris",
+		count = 30,
+		speedMin = 60,
+		speedMax = 140,
+		upBias = 0.9,
+		life = 3,
+		bySpeed = true,
+		minSpeed = HEAVY_MIN,
+		fullSpeed = HEAVY_FULL,
+	},
+	{ cam = "distanceOffset", kick = 8, dur = 1.4, bySpeed = true, minSpeed = HEAVY_MIN, fullSpeed = HEAVY_FULL },
 }
 
 local Tuning = {
@@ -119,8 +258,8 @@ local Tuning = {
 		-- Lunge speed for an LMB hold of N seconds, geometric between points (the forward twin of Burst.HoldHeights):
 		-- a jab on tap, a burst dash at the first charge, then climbing hard toward a lap of the planet.
 		HoldBoosts = {
-			{ 0, 80 },
-			{ 0.6, 260 },
+			{ 0, 45 }, -- review note: 80 on a tap added too much momentum
+			{ 0.6, 220 },
 			{ 3, 420 },
 			{ 10, 1300 },
 			{ 25, 4500 },
@@ -233,12 +372,135 @@ local Tuning = {
 		YawRate = 120,
 	},
 
+	-- Destruction (spec §4.8, §4.12, §15 milestone 4). Damage is in hits: contact speed / Smash.SpeedPerHit against
+	-- the catalog's Health. A dive into the ground or a structure smashes everything in a radius that grows with
+	-- speed (Impact.RadiusBase + speed / RadiusSpeedDivisor), breaking in a wave from the centre at WaveSpeed;
+	-- anything else flying into a destructible hits just it (plus Smash.ContactRadius around it).
 	Impact = {
-		RecoveryTime = 0.4,
-		RadiusBase = 6,
-		RadiusSpeedDivisor = 8,
-		DamagePerSpeed = 2,
+		RadiusBase = 12, -- review note: the pound felt small at low charges (was 6 + speed / 8)
+		RadiusSpeedDivisor = 7,
+		PlainPoundScale = PLAIN_POUND_SCALE, -- a plain landing's share of the radius; a punch pound gets it all
 		WaveSpeed = 200,
+	},
+
+	Smash = {
+		-- Review notes: "destruction simulator": a glide (60) clears trees, a hop-dive (100) a house, a 250 dive a
+		-- tower; a punch always breaks what it touches and knocks its neighbours.
+		SpeedPerHit = 25,
+		MinSpeed = 40, -- slower touchdowns and contacts don't count
+		-- A contact's force in hits is speed / SpeedPerHit, times DiveMult in a dive and PunchMult while LMB is
+		-- held or within PunchWindow of a punch firing; health decides (review note: a tap punch levelled towers
+		-- while "a punch always finishes its target" was the rule). Health scales with size ^ HealthBySize.
+		DiveMult = 1, -- review note: the plain dive pound was too strong (was 1.5); the punch is the amplifier
+		PunchMult = 2.5,
+		-- A rocket punch into the ground pounds with strength = (lunge + momentum) × closeness × PoundStrength,
+		-- standing in for speed in the damage and radius formulas, so the charge sets the base and how close you
+		-- fire sets the multiplier, like the knockback.
+		PoundStrength = 1,
+		PunchWindow = 1, -- seconds after a punch fires that it still counts as attacking (a dash reaching its target)
+		PunchRadiusScale = 0.5, -- a punch contact smashes this share of a dive's radius around it
+		MaxForceMult = 4, -- server cap on the multiplier a client reports
+		HealthBySize = 0.5, -- a 4× building takes 2× the hits (and pays 4× the cash)
+		BigBreakValue = 120, -- objects worth this much (catalog value) break with the BreakBig feel on top
+		-- Breaking through costs speed: PassLoss × (health left / force), so a tree barely slows a dive and a
+		-- tower you only just cracked takes most of your momentum (review note: collisions need weight).
+		PassLoss = 0.65,
+		EdgeDamageShare = 0.35, -- damage at the edge of the radius relative to the centre, so towns crumble from the hit side
+		ContactRadius = 6, -- a non-dive contact breaks what it touched plus this much around it
+		RehitTime = 0.5, -- seconds before the same object can be hit again while you pass through it
+	},
+
+	-- Chunks: client-only pooled parts copied from the broken prefab's own parts and flung from the smash centre
+	-- (spec §4.8: 30 + (radius − distance) × 2, upward bias 0.4), one bounce off the globe, then fade.
+	Chunks = {
+		Pool = 120, -- at most this many alive per client (spec §4.12 said 40; a town wave needs more); past it, particles only
+		RemoteRange = 300, -- other players' breaks show chunks only this close
+		BaseSpeed = 45,
+		SpeedPerStud = 2,
+		SpeedByContact = 0.15, -- plus this share of the contact speed, so a hypersonic crash sends pieces everywhere
+		UpBias = 0.55,
+		Spin = 9, -- radians per second at launch
+		SpinByContact = 0.004, -- extra spin per unit of contact speed
+		Life = 4,
+		Fade = 1,
+		Bounce = 0.3, -- share of the fall speed kept on the ground bounce
+		BounceFriction = 0.5,
+		SizeScale = 0.6, -- chunk size relative to the prefab part it came from
+		FlashTime = 0.12, -- chunks spawn white and settle to their colour over this (the "I connected" read)
+		DebrisPerChunk = 4, -- small particle debris per chunk
+	},
+
+	Rebuild = {
+		Delay = 75, -- seconds after a break before the prefab snaps back (spec §4.12)
+	},
+
+	-- World generation (server/WorldGen.luau, spec §15 milestone 4): the server lays the prefab templates out over
+	-- the whole globe from a per-server seed, so everyone in a server sees the same world and no two servers
+	-- match. Sections (town, hamlet, forest, cliff) are intentional clusters; the scatter fills everything between.
+	WorldGen = {
+		FirstTownDistance = 350, -- the first town is always this far from the altar (spec §8: the first target)
+		AltarClear = 150, -- nothing spawns this close to the altar
+		SectionClear = 600, -- minimum distance between big section centres (towns, hamlets, forests, cliffs)
+		GroveClear = 220, -- groves only keep this far from anything else
+		ScatterClear = 200, -- loose trees and rocks keep this far from a town or hamlet centre
+		-- Review note: the first pass (6 towns, 12 forests, 2,500 loose trees) was still mostly empty; density
+		-- comes from many more clusters as well as more scatter.
+		-- Second density push (review note: still needs more density and bigger destructibles).
+		Towns = 14,
+		Hamlets = 20,
+		Forests = 40,
+		Groves = 260, -- small clumps of trees and a rock or two
+		Cliffs = 8,
+		ScatterTrees = 9000,
+		ScatterRocks = 2200,
+		ForestTrees = 120,
+		ForestRocks = 24,
+		ForestSize = 340, -- studs across (trees scatter over Size × Size × 0.75)
+		GroveTreesMin = 10,
+		GroveTreesMax = 24,
+		GroveSize = 100,
+		-- Towns vary in size: a grid of TownColsMin–Max by TownRowsMin–Max with towers nearest the centre
+		-- (TownTowerShare of the slots), then shops (TownShopShare), then houses; cars and lamps per slot.
+		TownColsMin = 5,
+		TownColsMax = 10,
+		TownRowsMin = 3,
+		TownRowsMax = 7,
+		TownTowerShare = 0.18,
+		TownShopShare = 0.34,
+		TownCarsPerSlot = 0.5,
+		TownLampsPerSlot = 0.4,
+		-- Size range per prefab, uniform between min and max (review note: the current buildings are the smallest
+		-- they should ever be; the biggest should be much taller, and trees taller overall).
+		Scale = {
+			Tree = { 1.3, 3.2 },
+			Rock = { 1, 3 },
+			Fence = { 1, 1.4 },
+			Lamp = { 1, 1.5 },
+			Car = { 0.9, 1.3 },
+			SmallHouse = { 1, 2.5 },
+			Shop = { 1, 3 },
+			Tower = { 1.2, 4.5 },
+			RadioMast = { 1, 2.4 },
+			-- Landmarks are monuments (review note: way bigger): the smallest is twice the template.
+			Pyramid = { 2, 5 },
+			Skyscraper = { 1.8, 4 },
+			Silo = { 1.8, 3.5 },
+			Windmill = { 1.8, 3.2 },
+			Statue = { 2, 5 },
+			Dome = { 1.8, 4 },
+		},
+		TownSkyscraperScale = { 1.2, 2.2 }, -- a town's centre skyscraper stays within its lot
+		-- Landmarks: big silhouettes placed alone with a ring of lamps (review note: layers of things to smash),
+		-- plus a chance of a skyscraper at a town's centre and a windmill at a hamlet's.
+		Landmarks = 30,
+		LandmarkKinds = { "Pyramid", "Skyscraper", "Silo", "Windmill", "Statue", "Dome" },
+		LandmarkLamps = 6,
+		LandmarkLampRing = 46, -- studs from the landmark (scaled by its size)
+		TownSkyscraperChance = 0.6,
+		HamletWindmillChance = 0.5,
+		TownSpacing = 74, -- grid pitch in the town, wide enough for the biggest buildings
+		TownStreet = 76, -- row pitch (the cars and lamps sit on the half rows)
+		YieldEvery = 150, -- models placed per frame while generating
 	},
 
 	Laser = {
@@ -261,6 +523,17 @@ local Tuning = {
 		Window = 4,
 		MaxCount = 20,
 		MultPerHit = 0.2,
+		-- Movement keeps a combo alive between targets (review note: tech and performing a Burst should extend it;
+		-- not the charge itself, or you could hold a charge forever). While in one of these states the window
+		-- keeps refilling, and a Burst release, a chain hop, a punch firing or a bounce refills it once; the
+		-- client pings the server at most every PingInterval (Combat/Smash.luau).
+		-- Nothing continuous ever refills the window (review note: only the release should count, not the Burst
+		-- playing out over many seconds). Entering a dive, swoop or slide, a chain hop, a punch release and a
+		-- bounce refill it once; a Burst release refills it by the window plus the flight it launches (ascent
+		-- plus hang, capped at BurstExtendMax) so a big Burst can carry a combo to the next target.
+		ExtendOnEnter = { Dive = true, Swoop = true, Slide = true },
+		BurstExtendMax = 45,
+		PingInterval = 0.75,
 	},
 
 	Economy = {
@@ -375,11 +648,16 @@ local Tuning = {
 
 	-- Trauma-style shake (Camera/CameraEffects.luau): a shake entry's amount is a trauma level; what the camera
 	-- does is trauma^Exponent, split into a positional offset and a rotational wobble.
+	-- Haptics (Feel/Haptics.luau): FeelTable `haptic = "Rumble"` kicks, 0–1 on the large motor.
+	Haptics = {
+		SmallShare = 0.5, -- the small motor runs at this share of the large one
+	},
+
 	CameraShake = {
 		MaxTrauma = 2,
 		Exponent = 1.6,
-		PositionScale = 0.35, -- studs of offset per unit of shake power
-		RotationDegrees = 1.6, -- degrees of roll/pitch/yaw wobble per unit of shake power
+		PositionScale = 0.2, -- studs of offset per unit of shake power (review note: less intense across the board)
+		RotationDegrees = 0.9, -- degrees of roll/pitch/yaw wobble per unit of shake power
 	},
 
 	-- FeelTable (spec §4, §12): every effect, keyed by event. Juice.luau documents the entry keys.
@@ -399,6 +677,7 @@ local Tuning = {
 		},
 		-- §4.7: wings open with a crack, a short time dip, the FOV drags down then eases back.
 		Swoop = {
+			{ haptic = "Rumble", kick = 0.2, dur = 0.15 },
 			{ loop = "Wind", to = 0.6, dur = 0.3 },
 			{ sound = "WingCatch" },
 			{ time = 0.4, dur = 0.1 },
@@ -442,6 +721,7 @@ local Tuning = {
 		-- §4.2 ignition and §4.3 ascent. Freeze and silence first, then the cannon shot. byCharge entries scale
 		-- with how long the Burst was charged.
 		Burst = {
+			{ haptic = "Rumble", kick = 0.9, dur = 0.4, curve = "expo", byCharge = true },
 			{ time = 0.15, dur = 0.12 },
 			{ bus = "Ambient", to = 1, dur = 0 },
 			{ bus = "Wind", to = 1, dur = 0 },
@@ -519,6 +799,8 @@ local Tuning = {
 
 		-- Punch releases scale by tier (minHeld is the LMB hold in seconds); every release stops the charge hum.
 		Dash = {
+			{ cam = "roll", kick = 2.5, dur = 0.35, curve = "spring", randomSign = true },
+			{ haptic = "Rumble", kick = 0.35, dur = 0.15, curve = "expo" },
 			{ loop = "PunchHum", to = 0, dur = 0.1 },
 			{ sound = "Dash" },
 			{ spawn = "Sparks", count = 14 },
@@ -544,6 +826,7 @@ local Tuning = {
 			{ cam = "shake", kick = 1.5, freq = 35, dur = 0.8, curve = "expo", minHeld = 40 },
 		},
 		Rocket = {
+			{ haptic = "Rumble", kick = 0.7, dur = 0.3, curve = "expo" },
 			{ loop = "PunchHum", to = 0, dur = 0.1 },
 			{ sound = "RocketPop" },
 			{ cam = "shake", kick = 0.6, freq = 30, dur = 0.35, curve = "expo" },
@@ -578,6 +861,25 @@ local Tuning = {
 		},
 		-- Bouncing off a wall that isn't destructible, or punching off the ground; harder hits hit harder.
 		Bounce = {
+			{
+				cam = "roll",
+				kick = 3,
+				dur = 0.35,
+				curve = "spring",
+				randomSign = true,
+				bySpeed = true,
+				minSpeed = 40,
+				fullSpeed = 400,
+			},
+			{
+				haptic = "Rumble",
+				kick = 0.6,
+				dur = 0.25,
+				curve = "expo",
+				bySpeed = true,
+				minSpeed = 40,
+				fullSpeed = 400,
+			},
 			{ sound = "Bounce", volume = 1, bySpeed = true, minSpeed = 0, fullSpeed = 200 },
 			{
 				cam = "shake",
@@ -605,6 +907,156 @@ local Tuning = {
 			{ post = "Flash", kick = 0.3, dur = 0.2, curve = "expo", bySpeed = true, minSpeed = 150, fullSpeed = 400 },
 		},
 		-- Another player's burst (spec §7): the column everyone sees.
+		-- A dive smashing into a structure mid-air: the same impact frame as a fast touchdown, at the contact point.
+		Smash = TOUCHDOWN,
+		-- A rocket punch pounding the ground: the touchdown impact frame with the full-size radius.
+		Pound = scaleRadii(TOUCHDOWN, 1 / PLAIN_POUND_SCALE),
+		-- Flying into a destructible without diving: a crunch, sparks and a small knock.
+		Hit = {
+			{ sound = "Hit", volume = 1, bySpeed = true, minSpeed = 40, fullSpeed = 600 },
+			{ spawn = "Sparks", count = 14, bySpeed = true, minSpeed = 40, fullSpeed = 600 },
+			{
+				cam = "shake",
+				kick = 0.8,
+				freq = 40,
+				dur = 0.35,
+				curve = "expo",
+				bySpeed = true,
+				minSpeed = 40,
+				fullSpeed = 900,
+			},
+			{ cam = "fovOffset", kick = -3, dur = 0.2, curve = "expo", bySpeed = true, minSpeed = 40, fullSpeed = 900 },
+			{
+				cam = "roll",
+				kick = 2.5,
+				dur = 0.35,
+				curve = "spring",
+				randomSign = true,
+				bySpeed = true,
+				minSpeed = 40,
+				fullSpeed = 600,
+			},
+			{
+				haptic = "Rumble",
+				kick = 0.5,
+				dur = 0.2,
+				curve = "expo",
+				bySpeed = true,
+				minSpeed = 40,
+				fullSpeed = 600,
+			},
+			-- Fast hits get an impact frame of their own.
+			{ time = 0, dur = 0.08, durMin = 0.02, bySpeed = true, minSpeed = 250, fullSpeed = 1200 },
+			{
+				post = "Flash",
+				kick = 0.4,
+				dur = 0.25,
+				curve = "expo",
+				bySpeed = true,
+				minSpeed = 250,
+				fullSpeed = 1200,
+			},
+			{ spawn = "Flash3D", size = 14, lift = 2, dur = 0.3, bySpeed = true, minSpeed = 250, fullSpeed = 1200 },
+		},
+		-- One object breaking (fired at its position with the family it is made of and the contact speed of the
+		-- smash that broke it; chunks come from Destruction). The bySpeed extras pile on for fast crashes.
+		BreakWood = {
+			{ sound = "BreakWood" },
+			{ spawn = "Dust", count = 10 },
+			{ spawn = "Debris", count = 6, speedMin = 15, speedMax = 40, upBias = 0.7, life = 1.6 },
+			{ spawn = "Dust", count = 20, bySpeed = true, minSpeed = 200, fullSpeed = 1200 },
+			{
+				spawn = "Debris",
+				count = 10,
+				speedMin = 50,
+				speedMax = 120,
+				upBias = 0.8,
+				life = 2.2,
+				bySpeed = true,
+				minSpeed = 200,
+				fullSpeed = 1200,
+			},
+		},
+		BreakStone = {
+			{ sound = "BreakStone" },
+			{ spawn = "Dust", count = 18 },
+			{ spawn = "Debris", count = 10, speedMin = 15, speedMax = 45, upBias = 0.7, life = 1.8 },
+			{ spawn = "Dust", count = 30, bySpeed = true, minSpeed = 200, fullSpeed = 1200 },
+			{
+				spawn = "Debris",
+				count = 14,
+				speedMin = 50,
+				speedMax = 130,
+				upBias = 0.8,
+				life = 2.4,
+				bySpeed = true,
+				minSpeed = 200,
+				fullSpeed = 1200,
+			},
+		},
+		BreakGlass = {
+			{ sound = "BreakGlass" },
+			{ spawn = "Sparks", count = 14 },
+			{ spawn = "Sparks", count = 24, bySpeed = true, minSpeed = 200, fullSpeed = 1200 },
+		},
+		BreakMetal = {
+			{ sound = "BreakMetal" },
+			{ spawn = "Sparks", count = 16 },
+			{ spawn = "Dust", count = 6 },
+			{ spawn = "Debris", count = 4, speedMin = 15, speedMax = 35, upBias = 0.6, life = 1.4 },
+			{ spawn = "Sparks", count = 24, bySpeed = true, minSpeed = 200, fullSpeed = 1200 },
+			{
+				spawn = "Debris",
+				count = 8,
+				speedMin = 50,
+				speedMax = 120,
+				upBias = 0.7,
+				life = 2,
+				bySpeed = true,
+				minSpeed = 200,
+				fullSpeed = 1200,
+			},
+		},
+		-- A cluster snapping back (spec §4.12).
+		Rebuild = { { sound = "RebuildChime" } },
+		-- Combo counter tick: a short rising arpeggio, one note per hit, resetting every 8 (the event's speed is the
+		-- note index 0–7, so pitchBySpeed steps the pitch).
+		-- The combo tick climbs a pentatonic scale (pitchSteps, in semitones, indexed by the event's speed) and the
+		-- banner adds an octave per tier.
+		ComboTick = { { sound = "ComboTick", pitchSteps = { 0, 2, 4, 7, 9, 12, 14, 16 } } },
+		-- Combo over: the total slides into the cash readout with a soft chime.
+		ComboEnd = {
+			{ sound = "CashIn" },
+			-- Bigger combos (the event's speed is the tier) pay off with a second note, a blink and a lean-in.
+			{ sound = "TierChime4", delay = 0.08, minSpeed = 3 },
+			{ post = "Flash", kick = 0.15, dur = 0.2, curve = "expo", minSpeed = 4 },
+			{ cam = "fovOffset", kick = 3, dur = 0.3, curve = "spring", minSpeed = 4 },
+		},
+		-- A big object (Smash.BigBreakValue or more) falling: a flash, a ring, a dust wall, a boom and a jolt
+		-- on top of its material break, so the valuable breaks pay off hardest.
+		BreakBig = {
+			{ spawn = "Flash3D", size = 18, lift = 6, dur = 0.3 },
+			{ spawn = "Shockwave", radius = 22, alpha = 0.7, dur = 0.4 },
+			{ spawn = "DustRing", radius = 12, count = 60 },
+			{ sound = "HeavyLand", volume = 0.6 },
+			{ cam = "shake", kick = 0.5, freq = 35, dur = 0.3, curve = "expo" },
+			{ haptic = "Rumble", kick = 0.4, dur = 0.2, curve = "expo" },
+		},
+		-- A car popping half a second after it breaks (spec §4.12; visual only, no chain damage yet).
+		CarPop = {
+			{ sound = "SubHit", volume = 0.6 },
+			{ spawn = "Shockwave", radius = 8, alpha = 0.6, dur = 0.3 },
+			{ spawn = "Flash3D", size = 10, lift = 2, dur = 0.25 },
+			{ spawn = "Sparks", count = 30 },
+			{ spawn = "Debris", count = 8, speedMin = 30, speedMax = 70, upBias = 0.8, life = 1.6 },
+			{ cam = "shake", kick = 0.3, freq = 40, dur = 0.25, curve = "expo" },
+		},
+		-- The combo's name steps up a tier (the event's speed is the tier index): a brighter chime and a blink.
+		ComboTier = {
+			{ sound = "TierChime2", pitchBySpeed = 0.08 },
+			{ haptic = "Rumble", kick = 0.25, dur = 0.12 },
+			{ post = "Flash", kick = 0.12, dur = 0.2, curve = "expo" },
+		},
 		RemoteBurst = {
 			{ spawn = "LightColumn", height = 3000, width = 4, alpha = 0.7, dur = 3 },
 			{ spawn = "Shockwave", radius = 60, alpha = 0.5, dur = 0.6 },
@@ -643,6 +1095,35 @@ local Tuning = {
 		WingCatch = { Id = "rbxasset://sounds/action_get_up.mp3", Bus = "Sfx", Volume = 0.45, Pitch = 1.1 },
 		-- Speed-driven air rush on top of the state wind (Tuning.Drive.Speed), never set by the FeelTable.
 		Rush = { Id = "rbxasset://sounds/action_falling.ogg", Bus = "Wind", Volume = 0.7, Pitch = 1.3, Loop = true },
+		-- Destruction placeholders (engine built-ins until the audio pass): one per break family, a contact hit,
+		-- the rebuild chime, the combo arpeggio tick and the cash-in chime.
+		-- Break sounds carry a wide pitch jitter so a wave of breaks doesn't sound copy-pasted.
+		BreakWood = { Id = "rbxasset://sounds/snap.mp3", Bus = "Sfx", Volume = 0.7, Pitch = 0.8, Jitter = 0.18 },
+		BreakStone = {
+			Id = "rbxasset://sounds/impact_explosion_03.mp3",
+			Bus = "Sfx",
+			Volume = 0.6,
+			Pitch = 0.5,
+			Jitter = 0.18,
+		},
+		BreakGlass = {
+			Id = "rbxasset://sounds/electronicpingshort.wav",
+			Bus = "Sfx",
+			Volume = 0.5,
+			Pitch = 1.6,
+			Jitter = 0.18,
+		},
+		BreakMetal = {
+			Id = "rbxasset://sounds/action_jump_land.mp3",
+			Bus = "Sfx",
+			Volume = 0.7,
+			Pitch = 0.5,
+			Jitter = 0.18,
+		},
+		Hit = { Id = "rbxasset://sounds/snap.mp3", Bus = "Sfx", Volume = 0.5, Pitch = 1.1 },
+		RebuildChime = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Sfx", Volume = 0.35, Pitch = 1.4 },
+		ComboTick = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Ui", Volume = 0.4, Pitch = 1.2 },
+		CashIn = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Ui", Volume = 0.5, Pitch = 1.8 },
 	},
 
 	Audio = {
@@ -832,6 +1313,11 @@ local Tuning = {
 		SquashMin = 0.35, -- a hop landing still squashes this much
 		StretchTime = 0.18, -- takeoff stretch recovery
 		PunchOutTime = 0.3, -- the punch pose decays over this after release
+		-- The flying punch (review note: after a release you looked like you were diving, not punching): in the
+		-- air the PunchFlight pose holds for PunchFlightHold of Smash.PunchWindow, then eases out, and it
+		-- overrides the state's own pose by PunchFlightOverride while it's in.
+		PunchFlightHold = 0.55,
+		PunchFlightOverride = 0.8,
 		Clips = {
 			R15 = {
 				idle = "rbxassetid://507766666",
@@ -887,6 +1373,20 @@ local Tuning = {
 			RShoulder = { P = 95, S = -10 },
 			RElbow = { P = 5 },
 			LShoulder = { P = -30, S = -15 },
+		},
+		-- The flying punch, held through the attack window in the air: the lead fist straight out along the
+		-- flight, the other arm pulled back, the body straight and twisted into the punch, head up.
+		PunchFlight = {
+			RShoulder = { P = 185, S = 6 },
+			RElbow = { P = 0 },
+			LShoulder = { P = -55, S = -14 },
+			LElbow = { P = 45 },
+			Waist = { T = 22, P = 4 },
+			Neck = { P = -28, T = -10 },
+			LHip = { P = 10 },
+			RHip = { P = 10 },
+			LKnee = { P = 0 },
+			RKnee = { P = 0 },
 		},
 		-- Hop takeoff stretch and touchdown squash (spec §4.9), kicked on enter.
 		Stretch = {
@@ -999,13 +1499,93 @@ local Tuning = {
 
 	Net = {
 		BurstMinInterval = 5, -- spec §13 rate limit
-		MaxPositionError = 40, -- reported positions further than this from the replicated character are ignored
+		MaxPositionError = 40, -- reported positions further than this from the replicated character are ignored...
+		PositionLag = 0.25, -- ...plus this many seconds of the contact speed (the replicated character lags at speed)
+		-- Contacts are batched per frame (Combat/Smash.luau) and budgeted per player on the server, never dropped
+		-- one by one: a fast dive through a town touches many things in a few frames (review note: at speed the
+		-- destruction stopped happening; the old per-contact rate limits were throwing them away).
+		MaxContactsPerBatch = 32,
+		ContactBudgetPerSecond = 60,
+		MaxOverlapParts = 600, -- parts a smash's radius query may return (the engine's default of 20 starved big pounds)
+		MaxSpeed = 20000, -- reported contact speeds above this are dropped (a 60 s punch is 14,000)
+		MaxFallPeak = 45000, -- reported dive start altitudes are clamped here (a full Burst is 36,000)
+		HitMaxDistance = 20, -- the contact point must be within this of the hit object's bounding box
 	},
 
 	Ui = {
 		AltitudeTop = 48,
 		AltitudeAlpha = 0.5,
 		RecordPulseTime = 1,
+		-- Cash feedback (spec §4.8): a small readout top-left that counts up, floating numbers at each break in
+		-- muted gold, and a combo counter top-right with a ring timer, shown from ×2.
+		CashSize = 22,
+		CashCountTime = 0.6, -- seconds the readout takes to count up to a new total
+		FloatPool = 24,
+		FloatSize = 20,
+		FloatRise = 8, -- studs a floating number rises over its life
+		FloatTime = 1.1,
+		FloatAlpha = 0.85,
+		FloatSizePerDecade = 0.3, -- numbers grow this much per decade of cash above $5, up to FloatMaxGrow
+		FloatMaxGrow = 2,
+		FloatPopTime = 0.15, -- pop in oversized and settle
+		FloatPopScale = 1.6,
+		FloatSpread = 3, -- studs of random sideways offset so a wave doesn't stack
+		FloatBigCash = 300, -- worth this much or more, the number is white-gold
+		-- Combo banner (UI/ComboBanner.luau): arcade style, top centre. The number pops on every credit, the name
+		-- steps up through ComboNames (by count) with a bigger pop and a flash, a thin bar times the window, and
+		-- the total slides down into the cash readout when the combo ends.
+		ComboTop = 72,
+		ComboNumberSize = 64,
+		ComboNameSize = 22,
+		ComboBarWidth = 180,
+		ComboPop = 0.3, -- seconds the number scales back after a tick
+		ComboPopScale = 1.35,
+		ComboTierPop = 0.5,
+		ComboTierPopScale = 1.8,
+		ComboOutTime = 0.7, -- the total flies to the cash readout and fades over this
+		ComboFlyScale = 0.4, -- its size when it lands on the readout
+		ComboTilt = 6, -- degrees the number tilts on each pop (alternating sides)
+		ComboWarnTime = 1, -- the bar turns hot and blinks for the last second of the window
+		ComboPayoffPop = 0.3, -- extra readout pop per decade of combo cash above $100
+		ComboNames = {
+			{ 2, "NICE" },
+			{ 4, "SWEET" },
+			{ 6, "RAMPAGE" },
+			{ 9, "WRECKING BALL" },
+			{ 12, "DEMOLITION" },
+			{ 16, "CATACLYSM" },
+			{ 20, "GODFALL" },
+		},
+		-- Break toasts (UI/Toasts.luau): a short stack above the bottom centre, one card per object broken.
+		ToastPool = 6,
+		ToastTime = 1.8,
+		ToastBottom = 150, -- pixels above the bottom edge for the newest card
+		ToastHeight = 34,
+		ToastGap = 6,
+		ToastSize = 22,
+		ToastBigCash = 300, -- a toast worth this much or more is big
+		ToastBigScale = 1.3,
+		ToastSlotResponse = 14, -- 1/seconds cards ease up the stack
+		PrefabNames = {
+			Tree = "TREE",
+			Fence = "FENCE",
+			Rock = "ROCK",
+			Lamp = "LAMP",
+			Car = "CAR",
+			SmallHouse = "HOUSE",
+			Shop = "SHOP",
+			Tower = "TOWER",
+			RadioMast = "MAST",
+			Pyramid = "PYRAMID",
+			Skyscraper = "SKYSCRAPER",
+			Silo = "SILO",
+			Windmill = "WINDMILL",
+			Statue = "STATUE",
+			Dome = "DOME",
+		},
+		-- Cash readout pop whenever it counts up.
+		CashPop = 0.35,
+		CashPopScale = 1.25,
 		-- Charge rings (punch beside the crosshair, jump above the head): chunky, outlined, mobile-HUD style.
 		RingThickness = 6,
 		RingBorder = 2, -- dark outline on each side of the ring
@@ -1022,6 +1602,8 @@ local Tuning = {
 		ChargeSpeed = 2, -- test aid: every hold (hop, Burst, punch) charges this many times faster than real time
 		TraceMovement = true, -- Studio only: print state transitions and bounces, expose Dbg* player attributes
 		DropAltitudes = { 300, 1000, 3000, 10000 },
+		TestSmashSpeed = 400, -- Studio only: F4 smashes the ground under the player at this speed
+		WorldSeed = 0, -- 0 = a new seed per server (printed at start); set it to reproduce a layout
 		PowerPresets = { 1, 6, 11, 18, 25 },
 		ShowControlsHud = true, -- tester cheat sheet in every build; turn off when milestone 7 hints land
 	},

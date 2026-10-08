@@ -1,9 +1,9 @@
 --!strict
 -- The Space hold, tracked on its own so nothing else (a punch, a state change, leaving the ground) loses it;
 -- only releasing acts. The controller calls `track` every frame; ground states call `update`.
---   * The charge is the time held, but time in the air only counts up to Hop.HoldTime: hold Space on the way
---     down and you can land with a full hop, or straight into Charging, but anything past that has to be
---     charged on the ground, so a huge Burst can't be banked in the air.
+--   * The charge is the whole time held, in the air as much as on the ground (review note at milestone 5: the
+--     Burst charge should build in the air past the first ring): hold Space through a long dive and the
+--     touchdown drops you straight into Charging with all of it, so a high dive can bounce straight back up.
 --   * Released on the ground before Hop.HoldTime, it hops: Hop.Height for a tap up to Hop.ChargedHeight.
 --     At Hop.HoldTime the ground state hands over to Charging, which Bursts on release.
 --   * A punch out of Charging keeps the hold; land still holding and it resumes.
@@ -41,27 +41,27 @@ function JumpCheck.track(ctx: Types.Ctx, dt: number, onGround: boolean)
 	end
 	if ctx.Input.JumpHeld then
 		local charge = dt * Tuning.Dev.ChargeSpeed
+		local before = JumpCheck.held() or 0
 		if onGround then
-			local before = JumpCheck.held() or 0
 			groundHeld += charge
-			local after = JumpCheck.held() or 0
-			if MathUtil.tier(Tuning.Burst.Tiers, after) > MathUtil.tier(Tuning.Burst.Tiers, before) then
-				JumpCheck.TierReached:Fire(after)
-			end
 		else
 			airHeld += charge
+		end
+		local after = JumpCheck.held() or 0
+		if MathUtil.tier(Tuning.Burst.Tiers, after) > MathUtil.tier(Tuning.Burst.Tiers, before) then
+			JumpCheck.TierReached:Fire(after)
 		end
 	elseif not onGround then
 		JumpCheck.clear()
 	end
 end
 
--- Seconds of charge in the current hold (air time capped at Hop.HoldTime), or nil when Space isn't held.
+-- Seconds of charge in the current hold, air and ground alike, or nil when Space isn't held.
 function JumpCheck.held(): number?
 	if pressedAt == nil then
 		return nil
 	end
-	return math.min(airHeld, Tuning.Hop.HoldTime) + groundHeld
+	return airHeld + groundHeld
 end
 
 -- 0–1 hop charge of the current hold, or nil when Space isn't held.

@@ -61,6 +61,7 @@ export type Ctx = {
 	Power: number, -- upgrade level 1–25; sets Burst velocity
 	PunchHold: number?, -- seconds LMB has been held, nil when not charging a punch
 	PunchReadyAt: number,
+	PunchFiredAt: number, -- when the last punch fired; a contact soon after counts as attacking (Smash.PunchWindow)
 	LookFollowAfter: number, -- Glide and Swoop don't turn toward the camera look until this time (after a bounce)
 	TimeScale: number, -- hitstop and slow-mo multiplier on dt this frame
 }

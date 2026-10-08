@@ -28,23 +28,18 @@ local SECTIONS: { Section } = {
 			{ Keys = { "SPACE" }, Label = "Hop" },
 			{ Keys = { "HOLD", "SPACE" }, Label = "Burst" },
 			{ Keys = { "AIR", "SPACE" }, Label = "Dive" },
-			{ Keys = { "LET GO" }, Label = "Swoop" },
-			{ Keys = { "LMB" }, Label = "Dash punch" },
-			{ Keys = { "HOLD", "LMB" }, Label = "Big punch" },
+			{ Keys = { "LET GO", "SPACE" }, Label = "Swoop" },
+			{ Keys = { "TAP", "LMB" }, Label = "Punch" },
+			{ Keys = { "HOLD", "LMB" }, Label = "Charge punch" },
 		},
 	},
+	-- Kept short on purpose (review note at milestone 5): the three tricks worth teaching; the rest are found.
 	{
 		Title = "TRICKS",
 		Rows = {
-			{ Keys = { "LAND", "SPACE" }, Label = "Bunny hop" },
-			{ Keys = { "AIR", "HOLD", "SPACE" }, Label = "Pre-charge" },
 			{ Keys = { "DIVE", "LAND" }, Label = "Slide" },
-			{ Keys = { "HOLD", "LMB", "DIVE", "LAND" }, Label = "Bounce" },
-			{ Keys = { "DIVE", "LMB" }, Label = "Dive boost" },
 			{ Keys = { "LMB", "AT GROUND" }, Label = "Rocket jump" },
 			{ Keys = { "SPACE", "LMB" }, Label = "Jump punch" },
-			{ Keys = { "LET GO", "LOW" }, Label = "Skim" },
-			{ Keys = { "HOLD", "LMB", "FLAT" }, Label = "Orbit" },
 		},
 	},
 }
@@ -85,6 +80,9 @@ local ACTION_CHIPS = {
 	DIVE = true,
 	FLAT = true,
 	LOW = true,
+	["AT STUFF"] = true,
+	FLY = true,
+	INTO = true,
 }
 
 -- Look and layout of a test tool; not gameplay tuning. Sizes are at 1080p and scale with the screen.
@@ -178,7 +176,7 @@ end
 local function row(parent: Instance, data: Row, order: number, touch: boolean)
 	local line = horizontal(parent, 10, order)
 	local keys = horizontal(line, 4, 1)
-	local shown = if touch then touchKeys(data.Keys) else data.Keys
+	local shown: { string } = if touch then touchKeys(data.Keys) else data.Keys
 	for index, key in shown do
 		chip(keys, key, index)
 	end
@@ -206,11 +204,11 @@ function ControlsHud.start()
 	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
 	rescale()
 
-	-- Bottom-left on desktop; top-left on touch, clear of the thumbstick zone.
+	-- Bottom-left on desktop; top-left on touch (under the cash readout), clear of the thumbstick zone.
 	local column = Instance.new("Frame")
 	column.BackgroundTransparency = 1
 	column.AnchorPoint = if touch then Vector2.new(0, 0) else Vector2.new(0, 1)
-	column.Position = if touch then UDim2.new(0, 16, 0, 16) else UDim2.new(0, 16, 1, -16)
+	column.Position = if touch then UDim2.new(0, 16, 0, 52) else UDim2.new(0, 16, 1, -16)
 	column.AutomaticSize = Enum.AutomaticSize.XY
 	column.Size = UDim2.new()
 	column.Parent = gui
@@ -241,6 +239,7 @@ function ControlsHud.start()
 	local footer = horizontal(column, 10, nextOrder())
 	if studio then
 		row(footer, { Keys = { "F2" }, Label = "Tuning" }, 1, false)
+		row(footer, { Keys = { "F4" }, Label = "Test smash" }, 3, false)
 	end
 	if touch then
 		-- No keyboard: a tappable HIDE chip folds the sheet down to a HELP chip in the same corner.

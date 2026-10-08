@@ -38,7 +38,8 @@ local function makeSound(name: string): Sound
 end
 
 -- `volume` scales the sound's own volume (default 1); entries scaled by speed pass it down.
-function Audio.play(name: string, volume: number?)
+-- One-shot; `volume` and `pitch` multiply the definition's.
+function Audio.play(name: string, volume: number?, pitch: number?)
 	local pool = pools[name]
 	if not pool then
 		pool = {}
@@ -52,8 +53,8 @@ function Audio.play(name: string, volume: number?)
 	poolNext[name] = index % #pool + 1
 	local sound = pool[index]
 	local def = Tuning.Sounds[name]
-	local jitter = Tuning.Audio.PitchJitter
-	sound.PlaybackSpeed = def.Pitch * (1 + (math.random() * 2 - 1) * jitter)
+	local jitter = def.Jitter or Tuning.Audio.PitchJitter
+	sound.PlaybackSpeed = def.Pitch * (pitch or 1) * (1 + (math.random() * 2 - 1) * jitter)
 	sound.Volume = def.Volume * (volume or 1)
 	sound.TimePosition = 0
 	sound:Play()
@@ -67,7 +68,7 @@ end
 
 function Audio.apply(entry: { [string]: any }, duration: number)
 	if entry.sound then
-		Audio.play(entry.sound, entry.volume)
+		Audio.play(entry.sound, entry.volume, entry.pitch)
 	elseif entry.bus then
 		layers:apply(`bus.{entry.bus}`, entry, duration)
 	elseif entry.loop then

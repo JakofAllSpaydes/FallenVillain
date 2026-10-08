@@ -1,7 +1,8 @@
 --!strict
 -- Landing (spec §3, §4.8): after touching down from the air, momentum bleeds off quickly (Landing.Damping)
 -- toward walking instead of stopping dead, then Grounded takes over. Space runs the ground tap-or-hold
--- check, so a hop inside the chain window still chains. Milestone 4 routes landings from Dive to Impact.
+-- check, so a hop inside the chain window still chains. A dive's smash is reported by the controller at the
+-- touchdown (spec §15 milestone 4); its impact frame is the speed-scaled touchdown juice here.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Tuning = require(Shared.Tuning)

@@ -3,10 +3,11 @@
 -- this module routes each entry to its sink. States never call effects; they only change state.
 --
 -- Events: the state entered ("Burst"), "Exit<State>" for the state left, "Bounce", punch results
--- ("Rocket", "Dash", "Fizzle"), the charge events ("PunchCharge", "PunchTier", "BurstTier"),
--- and anything fired with Juice.fire (e.g. "RemoteBurst").
+-- ("Rocket", "Dash", "Fizzle"), the charge events ("PunchCharge", "PunchTier", "BurstTier"), destruction
+-- ("Smash" into a structure, "Hit", "Break<Family>", "Rebuild", "ComboTick", "ComboEnd"), and anything fired
+-- with Juice.fire (e.g. "RemoteBurst").
 --
--- Entry keys: one sink key (cam, post, bus, loop, sound, vfx, spawn, time, ui) plus timing:
+-- Entry keys: one sink key (cam, post, bus, loop, sound, vfx, spawn, time, ui, haptic) plus timing:
 --   to / from / kick   the value (tween target, start, or one-shot amount)
 --   dur                seconds; durAscent = fraction of this Burst's ascent time instead
 --   delay              seconds; atApex = seconds relative to the predicted apex instead (negative = before)
@@ -15,7 +16,10 @@
 -- byCharge = true scales the amounts (to, kick, radius, count, height) by the last Burst charge.
 -- minSpeed gates an entry on the event's speed (a touchdown or bounce speed); bySpeed = true scales the same
 -- amounts, plus `volume` for sounds, by how far the speed is from minSpeed to fullSpeed, and `dur` from
--- durMin (if given) to dur.
+-- durMin (if given) to dur. pitchBySpeed steps a sound's pitch by that much per unit of the event's speed;
+-- pitchSteps is a semitone scale indexed by the speed as a note index, climbing an octave per wrap (the combo
+-- tick passes its note index as the speed). randomSign flips a kick's sign half the time (camera roll).
+-- bySmashRadius makes a spawn's radius a multiple of the smash radius for the event's speed.
 -- Delayed entries from a state's event are skipped if that state has already ended.
 
 local Tuning = require(game:GetService("ReplicatedStorage").Shared.Tuning)
@@ -26,6 +30,7 @@ local JumpCheck = require(script.Parent.Parent.Movement.JumpCheck)
 local Punch = require(script.Parent.Parent.Movement.Punch)
 local AltitudeReadout = require(script.Parent.Parent.UI.AltitudeReadout)
 local Audio = require(script.Parent.Audio)
+local Haptics = require(script.Parent.Haptics)
 local Post = require(script.Parent.Post)
 local TimeScale = require(script.Parent.TimeScale)
 local Vfx = require(script.Parent.Vfx)
@@ -69,6 +74,38 @@ local function scaled(entry: Entry, speed: number?): Entry
 			result.dur = result.durMin + (result.dur - result.durMin) * factor
 		end
 	end
+	if entry.pitchBySpeed and speed then
+		if result == entry then
+			result = table.clone(entry)
+		end
+		result.pitch = (result.pitch or 1) * (1 + entry.pitchBySpeed * speed)
+	end
+	-- bySmashRadius: the entry's radius is a multiple of the smash radius for the event's speed (spec §10:
+	-- Impact.RadiusBase + speed / RadiusSpeedDivisor), so rings, craters and dust walls match the damage.
+	if entry.bySmashRadius and speed then
+		if result == entry then
+			result = table.clone(entry)
+		end
+		local I = Tuning.Impact
+		result.radius = (entry.radius or 1) * (I.RadiusBase + speed / I.RadiusSpeedDivisor) * I.PlainPoundScale
+	end
+	-- pitchSteps: semitone steps indexed by the event's speed (a note index); wraps, climbing an octave per wrap.
+	if entry.pitchSteps and speed then
+		if result == entry then
+			result = table.clone(entry)
+		end
+		local steps = entry.pitchSteps
+		local index = math.floor(speed)
+		local semitones = steps[index % #steps + 1] + 12 * (index // #steps)
+		result.pitch = (result.pitch or 1) * 2 ^ (semitones / 12)
+	end
+	-- randomSign: a kick that goes either way (camera roll).
+	if entry.randomSign and result.kick and math.random() < 0.5 then
+		if result == entry then
+			result = table.clone(entry)
+		end
+		result.kick = -result.kick
+	end
 	return result
 end
 
@@ -88,6 +125,8 @@ local function run(entry: Entry, duration: number, position: Vector3?)
 		end
 	elseif entry.time then
 		TimeScale.push(entry.time, duration)
+	elseif entry.haptic then
+		Haptics.apply(entry, duration)
 	elseif entry.ui then
 		if entry.record then
 			local ctx = Controller.ctx
@@ -143,6 +182,9 @@ function Juice.start()
 	Punch.Fired:Connect(function(kind, held, position)
 		Juice.fire(kind, position, nil, held)
 	end)
+	Punch.GroundPound:Connect(function(position, strength)
+		Juice.fire("Pound", position, nil, nil, strength)
+	end)
 	Punch.ChargeStarted:Connect(function(held)
 		Juice.fire("PunchCharge", nil, nil, held)
 	end)
@@ -154,6 +196,17 @@ function Juice.start()
 	end)
 	Controller.Bounced:Connect(function(position, speed)
 		Juice.fire("Bounce", position, nil, nil, speed)
+	end)
+	-- A ground smash's impact frame already plays through the Landing/Slide touchdown; only structures fire here.
+	-- Structure smashes and hits play by effort (speed scaled by how much the object resisted), so cutting
+	-- through a cluster of trees at speed barely registers while a tower still hits like a tower.
+	Controller.Smashed:Connect(function(position, _speed, _radius, direct, _force, effort)
+		if direct then
+			Juice.fire("Smash", position, nil, nil, effort)
+		end
+	end)
+	Controller.HitObject:Connect(function(_model, position, _speed, _force, effort)
+		Juice.fire("Hit", position, nil, nil, effort)
 	end)
 	Juice.fire("Grounded")
 end

@@ -282,17 +282,30 @@ local function buildTargets(ctx: Types.Ctx, now: number)
 
 	local state = ctx.State
 	local speed = ctx.Velocity.Magnitude
+
+	-- The flying punch: for the attack window after a release, in the air, the punch pose takes over the
+	-- state's pose (held, then eased out), so a dash reads as a punch rather than a dive.
+	local flight = 0
+	if not GROUND_STATES[state] then
+		local p = (now - ctx.PunchFiredAt) / math.max(Tuning.Smash.PunchWindow, 1e-3)
+		if p >= 0 and p < 1 then
+			local hold = A.PunchFlightHold
+			flight = if p < hold then 1 else 1 - ((p - hold) / math.max(1 - hold, 1e-3)) ^ 2
+		end
+	end
+	local stateWeight = 1 - flight * A.PunchFlightOverride
+
 	if state == "Burst" then
 		addPose(P.Burst, 1)
 	elseif state == "Hang" then
 		addPose(P.Hang, 1)
 		addPose(P.HangBreath, math.sin(2 * math.pi * ctx.StateTime / A.HangBreathPeriod))
 	elseif state == "Glide" then
-		addPose(P.Glide, 1)
+		addPose(P.Glide, stateWeight)
 		addPose(P.GlideBank, ctx.Bank / Tuning.Glide.BankMax)
 	elseif state == "Dive" then
-		addPose(P.Dive, 1)
-		addPose(P.DiveTight, math.clamp(ctx.StateTime / A.DiveTightenTime, 0, 1))
+		addPose(P.Dive, stateWeight)
+		addPose(P.DiveTight, math.clamp(ctx.StateTime / A.DiveTightenTime, 0, 1) * stateWeight)
 		local vibration = A.DiveShake * (1 - math.exp(-speed / A.DiveShakeRef))
 		local root = joints.Root
 		if root then
@@ -301,13 +314,14 @@ local function buildTargets(ctx: Types.Ctx, now: number)
 			root.Target[5] += math.noise(t, NOISE_SEED_S) * 2 * vibration
 		end
 	elseif state == "Swoop" then
-		addPose(P.Swoop, 1)
+		addPose(P.Swoop, stateWeight)
 		addPose(P.GlideBank, ctx.Bank / Tuning.Glide.BankMax)
 	elseif state == "Slide" then
 		addPose(P.Slide, 1)
 	elseif state == "Hop" then
-		addPose(P.Hop, 1)
+		addPose(P.Hop, stateWeight)
 	end
+	addPose(P.PunchFlight, flight)
 
 	-- Jump charge: the squat deepens with the Space hold and trembles as the Burst charge climbs.
 	if GROUND_STATES[state] then

@@ -15,6 +15,7 @@
 -- The controller calls `update` before the state runs; it returns the transition when the punch fires.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
+local Destructibles = require(Shared.Destructibles)
 local Globe = require(Shared.Globe)
 local Signal = require(Shared.Signal)
 local Tuning = require(Shared.Tuning)
@@ -29,6 +30,9 @@ Punch.Fired = Signal.new() :: Signal.Signal<string, number, Vector3>
 Punch.ChargeStarted = Signal.new() :: Signal.Signal<number>
 -- (seconds held) each time the hold crosses a Punch.Tiers threshold
 Punch.TierReached = Signal.new() :: Signal.Signal<number>
+-- (position, strength, model touched) when a rocket punch pounds the surface it fires off: a ground pound
+-- whose strength is the lunge plus your momentum scaled by closeness (spec §15 milestone 5).
+Punch.GroundPound = Signal.new() :: Signal.Signal<Vector3, number, Model?>
 
 -- Lunge speed for a hold of `seconds`.
 function Punch.boostFor(seconds: number): number
@@ -46,15 +50,15 @@ local function aimDirection(ctx: Types.Ctx): Vector3
 end
 
 -- The rocket bounce off a surface, or nil if the aim isn't steep enough or nothing is in reach.
-local function rocket(ctx: Types.Ctx, charge: number, grounded: boolean): (Vector3?, Vector3?)
+local function rocket(ctx: Types.Ctx, charge: number, grounded: boolean): (Vector3?, Vector3?, number?, Instance?)
 	local P = Tuning.Punch
 	local into = aimDirection(ctx)
 	if into:Dot(ctx.Up) > -math.sin(math.rad(P.RocketMinAngle)) then
-		return nil, nil
+		return nil, nil, nil, nil
 	end
 	local hit = Globe.raycast(ctx.Root.Position, into * (P.Reach + ctx.StandHeight), ctx.RaycastParams)
 	if not hit then
-		return nil, nil
+		return nil, nil, nil, nil
 	end
 	local strength = (P.MinPower + (1 - P.MinPower) * charge) * (if grounded then P.GroundedMult else 1)
 	local clearance = math.max(0, hit.Distance - ctx.StandHeight)
@@ -63,14 +67,14 @@ local function rocket(ctx: Types.Ctx, charge: number, grounded: boolean): (Vecto
 	local incoming = math.max(0, ctx.Velocity:Dot(into))
 	local push = proximity * (incoming * (1 + P.Reflect * strength) + P.Impulse * strength)
 	if push < 1e-3 then
-		return nil, nil
+		return nil, nil, nil, nil
 	end
 	local velocity = ctx.Velocity - into * push
 	local cap = math.max(ctx.Velocity.Magnitude, P.MaxLaunchSpeed)
 	if velocity.Magnitude > cap then
 		velocity = velocity.Unit * cap
 	end
-	return velocity, hit.Position
+	return velocity, hit.Position, proximity, hit.Instance
 end
 
 local function release(ctx: Types.Ctx, hold: number, grounded: boolean): (Types.MovementState?, any)
@@ -79,8 +83,12 @@ local function release(ctx: Types.Ctx, hold: number, grounded: boolean): (Types.
 	local boost = Punch.boostFor(hold)
 	ctx.GlideEnergy = math.max(0, ctx.GlideEnergy - P.DashEnergyCost * charge)
 
-	local launch, at = rocket(ctx, charge, grounded)
-	if launch and at then
+	local launch, at, proximity, instance = rocket(ctx, charge, grounded)
+	if launch and at and proximity then
+		-- The surface takes a ground pound too: the lunge plus your momentum, scaled by closeness like the
+		-- knockback (review note: punching into the ground amplifies the pound; the charge sets the base).
+		local strength = (boost + ctx.Velocity.Magnitude) * proximity * Tuning.Smash.PoundStrength
+		Punch.GroundPound:Fire(at, strength, Destructibles.modelOf(instance))
 		-- The forward lunge still happens, along your facing; the bounce rides on top of it.
 		local forward = MathUtil.flat(ctx.LookDirection, ctx.Up)
 		local added = if forward.Magnitude > 1e-3 then forward.Unit * boost * P.RocketForwardShare else Vector3.zero
@@ -138,6 +146,7 @@ function Punch.update(ctx: Types.Ctx, mode: ("Ground" | "Air")?, dt: number): (T
 		return nil
 	end
 	ctx.PunchReadyAt = ctx.Now + Tuning.Punch.Cooldown
+	ctx.PunchFiredAt = ctx.Now
 	return release(ctx, hold, mode == "Ground")
 end
 

@@ -1,5 +1,6 @@
 {
   "name": "FALL",
+  "globIgnorePaths": ["**/*.tmp.*"],
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {

@@ -14,6 +14,7 @@ local Tuning = require(Shared.Tuning)
 local Controller = require(script.Parent.Parent.Movement.Controller)
 local MathUtil = require(script.Parent.Parent.Movement.MathUtil)
 local Layers = require(script.Parent.Layers)
+local TimeScale = require(script.Parent.TimeScale)
 
 local Vfx = {}
 
@@ -367,6 +368,7 @@ local function update(dt: number)
 	end
 
 	local gravity = Tuning.Gravity.Default
+	dt *= TimeScale.get() -- the impact freeze holds the debris in the air too
 	for _, piece in debris do
 		local age = now - piece.Start
 		if age < piece.Life then

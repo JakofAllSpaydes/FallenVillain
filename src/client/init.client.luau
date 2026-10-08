@@ -1,9 +1,19 @@
 --!strict
 -- Client entry point.
 
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
 local Tuning = require(game:GetService("ReplicatedStorage").Shared.Tuning)
 
 local AltitudeReadout = require(script.UI.AltitudeReadout)
+local CashReadout = require(script.UI.CashReadout)
+local ComboBanner = require(script.UI.ComboBanner)
+local Destruction = require(script.Feel.Destruction)
+local FloatingNumbers = require(script.UI.FloatingNumbers)
+local Haptics = require(script.Feel.Haptics)
+local Smash = require(script.Combat.Smash)
+local Toasts = require(script.UI.Toasts)
 local Anim = require(script.Feel.Anim)
 local AtmosphereDriver = require(script.World.AtmosphereDriver)
 local Audio = require(script.Feel.Audio)
@@ -29,6 +39,7 @@ Reticle.start()
 GroundShadow.start()
 ControlsHud.start()
 Audio.start()
+Haptics.start()
 Post.start()
 Vfx.start()
 AltitudeReadout.start()
@@ -39,6 +50,21 @@ Drivers.start()
 Anim.start()
 AtmosphereDriver.start()
 RemotePlayers.start()
+Smash.start()
+Destruction.start()
+CashReadout.start()
+ComboBanner.start()
+Toasts.start()
+FloatingNumbers.start()
+
+-- Studio test aid: F4 smashes the ground under the player at Dev.TestSmashSpeed.
+if RunService:IsStudio() then
+	UserInputService.InputBegan:Connect(function(input)
+		if input.KeyCode == Enum.KeyCode.F4 and not UserInputService:GetFocusedTextBox() then
+			Controller.testSmash()
+		end
+	end)
+end
 
 local actions: { DevPanel.Action } = {}
 for _, altitude in Tuning.Dev.DropAltitudes do
