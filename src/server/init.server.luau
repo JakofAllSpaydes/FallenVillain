@@ -50,6 +50,13 @@ end
 -- The shared day clock (World/DayCycle): every client counts the day from this server time.
 workspace:SetAttribute("DayCycleStart", workspace:GetServerTimeNow())
 
+-- Streaming never pauses gameplay (review note: "Gameplay Paused" at speed): the ground is analytic, so the
+-- player can outrun the content. StreamingIntegrityMode is also a Workspace property (Properties panel,
+-- Streaming section); it is set there too, this is a belt for published places.
+pcall(function()
+	(workspace :: any).StreamingIntegrityMode = Enum.StreamingIntegrityMode.Disabled
+end)
+
 Presence.start()
 DestructionAuthority.start()
 WorldGen.generate()

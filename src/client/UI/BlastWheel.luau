@@ -39,7 +39,7 @@ function BlastWheel.start()
 	holder.Size = UDim2.fromOffset(U.PunchWheelSize, U.PunchWheelSize)
 	holder.Position = UDim2.fromScale(0.5, 0.5) -- on the crosshair: that is where the blast goes
 	holder.Parent = gui
-	rings = ChargeRings.new(holder, #Progression.circleEnds("Blast"))
+	rings = ChargeRings.new(holder, #Progression.circleEnds("Blast"), "Blast")
 
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 	RunService.RenderStepped:Connect(update)

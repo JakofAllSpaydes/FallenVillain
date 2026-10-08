@@ -54,7 +54,7 @@ function JumpWheel.start()
 	gui.StudsOffset = Vector3.yAxis * U.JumpWheelHeight -- in the root's frame, so it is above the head anywhere on the globe
 	gui.ResetOnSpawn = false
 	gui.Enabled = false
-	rings = ChargeRings.new(gui, #ringEnds())
+	rings = ChargeRings.new(gui, #ringEnds(), "Burst", true)
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 	RunService.RenderStepped:Connect(update)
 end

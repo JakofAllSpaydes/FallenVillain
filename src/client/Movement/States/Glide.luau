@@ -36,6 +36,11 @@ function Glide.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 
 	local moveZ = ctx.Input.Move.Z
 	local pitchTarget = if moveZ < 0 then T.PitchMin * -moveZ else T.PitchMax * moveZ
+	if math.abs(moveZ) < 0.01 then
+		-- No pitch input: fly where the camera looks (review note), within the glide's pitch range.
+		local lookPitch = MathUtil.pitchOf(ctx.LookDirection, up)
+		pitchTarget = math.clamp(lookPitch, T.PitchMin, T.PitchMax) * T.LookPitchWeight
+	end
 	pitch = MathUtil.approach(pitch, pitchTarget, T.PitchResponse, dt)
 
 	local steer = MathUtil.steerInput(ctx)

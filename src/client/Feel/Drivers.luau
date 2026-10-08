@@ -19,9 +19,11 @@ local RunService = game:GetService("RunService")
 
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Globe = require(Shared.Globe)
+local Progression = require(Shared.Progression)
 local Tuning = require(Shared.Tuning)
 
 local CameraEffects = require(script.Parent.Parent.Camera.CameraEffects)
+local Blast = require(script.Parent.Parent.Movement.Blast)
 local Controller = require(script.Parent.Parent.Movement.Controller)
 local JumpCheck = require(script.Parent.Parent.Movement.JumpCheck)
 local MathUtil = require(script.Parent.Parent.Movement.MathUtil)
@@ -59,7 +61,9 @@ local function clear()
 	Vfx.drive("SpeedLines", 0)
 	Vfx.drive("Trails", 0)
 	Vfx.drive("Embers", 0)
-	Vfx.drive("Fist", 0)
+	Vfx.setCharge("Punch", 0, 0, false)
+	Vfx.setCharge("Blast", 0, 0, false)
+	Vfx.setCharge("Burst", 0, 0, false)
 	Vfx.setPreview(nil, 0, 0, 0, 0)
 	Audio.drive("ApproachDrone", 0, 0)
 	Post.drive("BloomDrive", 0)
@@ -167,20 +171,35 @@ local function update(dt: number)
 	Vfx.drive("Trails", lines)
 	Vfx.drive("Embers", heat)
 
-	-- Fist glow, from the punch charge or the blast charge, whichever is further along.
-	local fist = 0
-	if punchHold then
-		local basic = math.clamp(punchHold / Tuning.Punch.ChargeTime, 0, 1)
-		fist = D.FistBaseShare * basic + (1 - D.FistBaseShare) * punchProgress
+	-- The charges' colour and strength for the VFX (fist flames and glow, the body aura, the trails): progress
+	-- along the whole hold curve, circles filled, and whether the hold is at the very top.
+	local function charge(kind: Progression.Charge, hold: number?, basicTime: number)
+		if not hold then
+			Vfx.setCharge(kind, 0, 0, false)
+			return
+		end
+		local ends = Progression.circleEnds(kind)
+		local tier = 0
+		for _, finish in ends do
+			if hold >= finish then
+				tier += 1
+			end
+		end
+		local basic = math.clamp(hold / math.max(basicTime, 1e-3), 0, 1)
+		local progress = D.FistBaseShare * basic + (1 - D.FistBaseShare) * holdProgress(hold, ends[#ends])
+		Vfx.setCharge(kind, progress, tier, tier >= #ends)
 	end
-	local blastHold = ctx.BlastHold
-	if blastHold then
-		local strengths = Tuning.Blast.HoldStrengths
-		local basic = math.clamp(blastHold / Tuning.Blast.ChargeTime, 0, 1)
-		local progress = holdProgress(blastHold, strengths[#strengths][1])
-		fist = math.max(fist, D.FistBaseShare * basic + (1 - D.FistBaseShare) * progress)
-	end
-	Vfx.drive("Fist", fist)
+	charge(
+		"Punch",
+		if punchHold then Progression.capHold("Punch", punchHold, ctx.Level) else nil,
+		Tuning.Punch.ChargeTime
+	)
+	charge("Blast", Blast.cappedHold(ctx), Tuning.Blast.ChargeTime)
+	-- The Burst charge counts anywhere (it builds in the air too), once past a hop's hold.
+	local burstHeld = if held and held >= Tuning.Hop.HoldTime
+		then Progression.capHold("Burst", held, ctx.Level)
+		else nil
+	charge("Burst", burstHeld, Tuning.Burst.Tiers[1])
 
 	updatePreview(ctx, dt)
 end

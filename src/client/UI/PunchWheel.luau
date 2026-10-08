@@ -39,7 +39,7 @@ function PunchWheel.start()
 	holder.Size = UDim2.fromOffset(U.PunchWheelSize, U.PunchWheelSize)
 	holder.Position = UDim2.new(0.5, U.PunchWheelOffset, 0.5, U.PunchWheelOffset)
 	holder.Parent = gui
-	rings = ChargeRings.new(holder, #Progression.circleEnds("Punch"))
+	rings = ChargeRings.new(holder, #Progression.circleEnds("Punch"), "Punch")
 
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 	RunService.RenderStepped:Connect(update)

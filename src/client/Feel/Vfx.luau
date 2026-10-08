@@ -21,11 +21,28 @@ local TimeScale = require(script.Parent.TimeScale)
 local Vfx = {}
 
 local layers = Layers.new({ "CrackRadius", "ChestLight", "ChargeBeam", "Trails" })
-local driven: { [string]: number } = { SpeedLines = 0, Embers = 0, Fist = 0, Trails = 0 }
+local driven: { [string]: number } = { SpeedLines = 0, Embers = 0, Trails = 0 }
 
 local DECAL_LIFT = 0.05 -- keeps flat parts off the ground without z-fighting; not a feel value
 local DECAL_THICKNESS = 0.1
-local HAND_PARTS = { "RightHand", "Right Arm" } -- R15 first, R6 fallback
+-- The charging hands: the punch on the right, the blast on the left (R15 first, R6 fallback).
+local HAND_PARTS: { [string]: { string } } = {
+	Punch = { "RightHand", "Right Arm" },
+	Blast = { "LeftHand", "Left Arm" },
+}
+
+-- A charge's state this frame (Vfx.setCharge): how far along its whole curve, circles filled, at the top.
+type Charge = { Progress: number, Tier: number, Maxed: boolean }
+-- Everything a charging hand carries.
+type Hand = {
+	Attachment: Attachment,
+	Light: PointLight,
+	Motes: ParticleEmitter,
+	Flames: ParticleEmitter,
+	Glow: ImageLabel,
+	Gui: BillboardGui,
+	Character: Model?,
+}
 
 -- A flat effect frame on the globe at `position`: Y along up, so a block's Top face lies on the ground.
 local function groundFrame(position: Vector3, lift: number): CFrame
@@ -60,11 +77,19 @@ local speedLines: ParticleEmitter
 local embers: ParticleEmitter
 local bodyAttachment: Attachment
 local bodyRoot: BasePart? = nil
-local fistLight: PointLight
-local fistMotes: ParticleEmitter
-local fistGlow: ImageLabel
-local fistAttachment: Attachment
-local fistCharacter: Model? = nil
+local hands: { [string]: Hand } = {}
+local charges: { [string]: Charge } = {
+	Burst = { Progress = 0, Tier = 0, Maxed = false },
+	Punch = { Progress = 0, Tier = 0, Maxed = false },
+	Blast = { Progress = 0, Tier = 0, Maxed = false },
+}
+local aura: ParticleEmitter
+local auraPart: Part
+local auraLight: PointLight
+local auraAttachment: Attachment
+local auraRoot: BasePart? = nil
+local trailColor: Color3 = Color3.new(1, 1, 1)
+local trailRainbow = false
 
 local previewRing: Decal2
 local previewFill: Decal2
@@ -159,9 +184,43 @@ function Vfx.apply(entry: { [string]: any }, duration: number)
 	layers:apply(entry.vfx, entry, duration)
 end
 
--- Per-frame 0–1 for a driven effect (SpeedLines, Embers, Fist, Trails).
+-- Per-frame 0–1 for a driven effect (SpeedLines, Embers, Trails).
 function Vfx.drive(name: string, value: number)
 	driven[name] = value
+end
+
+-- A charge's state this frame (Feel/Drivers): `progress` 0–1 along its whole hold curve, `tier` circles
+-- filled, `maxed` at the top of the last unlocked circle. Zeros when not charging.
+function Vfx.setCharge(kind: string, progress: number, tier: number, maxed: boolean)
+	local charge = charges[kind]
+	if charge then
+		charge.Progress, charge.Tier, charge.Maxed = progress, tier, maxed
+	end
+end
+
+-- The colour a charge wears: the action's hue ramp (Ui.ChargePalettes) at the circle being filled, a hue cycle
+-- at max.
+local CIRCLES = 5 -- circles per charge; the ramp runs across them
+local function chargeColor(kind: string, charge: Charge, now: number): Color3
+	local V = Tuning.Vfx
+	if charge.Maxed then
+		return Color3.fromHSV((now * V.RainbowSpeed) % 1, 0.75, 1)
+	end
+	local palette = Tuning.Ui.ChargePalettes[kind] or Tuning.Ui.ChargePalettes.Punch
+	local t = math.clamp(charge.Tier / (CIRCLES - 1), 0, 1)
+	return palette.From:Lerp(palette.To, t)
+end
+
+local function rainbowSequence(now: number): ColorSequence
+	local keypoints = {}
+	for index = 0, 6 do
+		local t = index / 6
+		table.insert(
+			keypoints,
+			ColorSequenceKeypoint.new(t, Color3.fromHSV((now * Tuning.Vfx.RainbowSpeed + t) % 1, 0.75, 1))
+		)
+	end
+	return ColorSequence.new(keypoints)
 end
 
 -- The smash preview this frame (spec §4.6): a ring of `radius` on the ground at `position` (nil hides it),
@@ -329,29 +388,77 @@ local function updateDriven(ctx: any)
 	embers.Rate = V.EmberRate * heat
 	embers.Enabled = heat > 0.02
 
-	if ctx and fistCharacter ~= ctx.Character then
-		fistCharacter = ctx.Character
-		fistAttachment.Parent = nil
-	end
-	if ctx and fistAttachment.Parent == nil then
-		for _, name in HAND_PARTS do
-			local hand = ctx.Character:FindFirstChild(name)
-			if hand and hand:IsA("BasePart") then
-				fistAttachment.Position = Vector3.new(0, -hand.Size.Y / 2, 0)
-				fistAttachment.Parent = hand
-				break
+	-- The charging hands: light, motes, glow and flames in the charge's colour, more of everything with it.
+	local now = os.clock()
+	for kind, hand in hands do
+		if ctx and hand.Character ~= ctx.Character then
+			hand.Character = ctx.Character
+			hand.Attachment.Parent = nil
+		end
+		if ctx and hand.Attachment.Parent == nil then
+			for _, name in HAND_PARTS[kind] do
+				local part = ctx.Character:FindFirstChild(name)
+				if part and part:IsA("BasePart") then
+					hand.Attachment.Position = Vector3.new(0, -part.Size.Y / 2, 0)
+					hand.Attachment.Parent = part
+					break
+				end
 			end
 		end
+		local charge = charges[kind]
+		local amount = if ctx then charge.Progress else 0
+		local on = amount > 0.02
+		local color = chargeColor(kind, charge, now)
+		hand.Light.Brightness = V.FistLight * amount
+		hand.Light.Color = color
+		hand.Light.Enabled = on
+		hand.Motes.Rate = V.FistRate * amount
+		hand.Motes.Enabled = on
+		hand.Flames.Rate = V.FlameRate * amount
+		hand.Flames.Enabled = on
+		if on then
+			local size = V.FlameSizeMin + (V.FlameSizeMax - V.FlameSizeMin) * amount
+			hand.Flames.Size = NumberSequence.new(size, size * 0.3)
+			local sequence = if charge.Maxed then rainbowSequence(now) else ColorSequence.new(color)
+			hand.Flames.Color = sequence
+			hand.Motes.Color = sequence
+		end
+		hand.Gui.Enabled = on
+		hand.Gui.Size = UDim2.fromScale(V.FistGlowSize * (0.5 + 0.5 * amount), V.FistGlowSize * (0.5 + 0.5 * amount))
+		hand.Glow.ImageColor3 = color
+		hand.Glow.ImageTransparency = 1 - amount * V.FistGlowAlpha
 	end
-	local fist = if ctx then driven.Fist else 0
-	fistLight.Brightness = V.FistLight * fist
-	fistLight.Enabled = fist > 0.02
-	fistMotes.Rate = V.FistRate * fist
-	fistMotes.Enabled = fist > 0.02
-	local glow = fistGlow.Parent :: BillboardGui
-	glow.Enabled = fist > 0.02
-	glow.Size = UDim2.fromScale(V.FistGlowSize * (0.5 + 0.5 * fist), V.FistGlowSize * (0.5 + 0.5 * fist))
-	fistGlow.ImageTransparency = 1 - fist * V.FistGlowAlpha
+
+	-- The body aura while a Burst charges (the jump's tier shows all around you), and the charge beam, pebbles
+	-- and chest light take the same colour. The flight's trails remember the colour the launch had.
+	local burst = charges.Burst
+	if ctx and auraRoot ~= ctx.Root then
+		auraRoot = ctx.Root
+		auraAttachment.Parent = ctx.Root
+	end
+	local burstAmount = if ctx then burst.Progress else 0
+	local burstColor = chargeColor("Burst", burst, now)
+	if ctx then
+		auraPart.CFrame = ctx.Root.CFrame * CFrame.new(0, -ctx.StandHeight * 0.5, 0)
+	end
+	aura.Rate = V.AuraRate * burstAmount
+	aura.Enabled = burstAmount > 0.02
+	auraLight.Brightness = V.AuraLight * burstAmount
+	auraLight.Color = burstColor
+	auraLight.Enabled = burstAmount > 0.02
+	if aura.Enabled then
+		local size = V.AuraSizeMin + (V.AuraSizeMax - V.AuraSizeMin) * burstAmount
+		aura.Size = NumberSequence.new(size, size * 0.4)
+		aura.Color = if burst.Maxed then rainbowSequence(now) else ColorSequence.new(burstColor)
+		beam.Color = ColorSequence.new(burstColor)
+		pebbles.Color = ColorSequence.new(burstColor)
+		light.Color = burstColor
+		trailColor = burstColor
+		trailRainbow = burst.Maxed
+	end
+	for _, trail in trails do
+		trail.Color = if trailRainbow then rainbowSequence(now) else ColorSequence.new(trailColor)
+	end
 end
 
 local function update(dt: number)
@@ -612,24 +719,77 @@ function Vfx.start()
 	embers.Orientation = Enum.ParticleOrientation.VelocityParallel
 	embers.Transparency = NumberSequence.new(0, 1)
 
-	fistAttachment = Instance.new("Attachment")
-	fistAttachment.Name = "FallFist"
-	fistLight = Instance.new("PointLight")
-	fistLight.Range = V.FistLightRange
-	fistLight.Color = V.FistColor
-	fistLight.Enabled = false
-	fistLight.Parent = fistAttachment
-	fistMotes = emitter(fistAttachment, V.GlowTexture, V.FistColor)
-	fistMotes.LightEmission = 1
-	fistMotes.Lifetime = NumberRange.new(V.FistLifetime)
-	fistMotes.Speed = NumberRange.new(V.FistSpeed)
-	fistMotes.SpreadAngle = Vector2.new(180, 180)
-	fistMotes.Size = NumberSequence.new(V.FistSize, 0)
-	fistMotes.Transparency = NumberSequence.new(0, 1)
-	local fistGui
-	fistGui, fistGlow = glowBillboard(V.FistGlowSize, V.FistColor)
-	fistGui.Adornee = fistAttachment
-	fistGui.Parent = fistAttachment
+	for kind in HAND_PARTS do
+		local attachment = Instance.new("Attachment")
+		attachment.Name = `FallHand{kind}`
+		local handLight = Instance.new("PointLight")
+		handLight.Range = V.FistLightRange
+		handLight.Color = V.FistColor
+		handLight.Enabled = false
+		handLight.Parent = attachment
+		local motes = emitter(attachment, V.GlowTexture, V.FistColor)
+		motes.LightEmission = 1
+		motes.Lifetime = NumberRange.new(V.FistLifetime)
+		motes.Speed = NumberRange.new(V.FistSpeed)
+		motes.SpreadAngle = Vector2.new(180, 180)
+		motes.Size = NumberSequence.new(V.FistSize, 0)
+		motes.Transparency = NumberSequence.new(0, 1)
+		-- The flames rise off the fist (the attachment's +Y points along the hand; flames drift up the arm).
+		local flames = emitter(attachment, V.FlameTexture, V.FistColor)
+		flames.LightEmission = 1
+		flames.Lifetime = NumberRange.new(V.FlameLifetime * 0.7, V.FlameLifetime)
+		flames.Speed = NumberRange.new(V.FlameSpeed * 0.6, V.FlameSpeed)
+		flames.SpreadAngle = Vector2.new(V.FlameSpread, V.FlameSpread)
+		flames.Size = NumberSequence.new(V.FlameSizeMin, 0)
+		flames.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.2),
+			NumberSequenceKeypoint.new(0.6, 0.4),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		flames.Rotation = NumberRange.new(-180, 180)
+		flames.RotSpeed = NumberRange.new(-90, 90)
+		local gui, glow = glowBillboard(V.FistGlowSize, V.FistColor)
+		gui.Adornee = attachment
+		gui.Parent = attachment
+		hands[kind] = {
+			Attachment = attachment,
+			Light = handLight,
+			Motes = motes,
+			Flames = flames,
+			Glow = glow,
+			Gui = gui,
+			Character = nil,
+		}
+	end
+
+	-- The Burst aura: flames rising from a ring around the body. The emitter's cylinder shell takes its radius
+	-- from the part it sits on, so the ring is a thin invisible part that follows the root.
+	auraAttachment = Instance.new("Attachment")
+	auraAttachment.Name = "FallAura"
+	auraPart = effectPart(Enum.PartType.Block, Color3.new(1, 1, 1), Enum.Material.SmoothPlastic)
+	auraPart.Size = Vector3.new(V.AuraRadius * 2, 0.5, V.AuraRadius * 2)
+	aura = emitter(auraPart, V.FlameTexture, V.FistColor)
+	aura.LightEmission = 1
+	aura.Shape = Enum.ParticleEmitterShape.Cylinder
+	aura.ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface
+	aura.ShapeInOut = Enum.ParticleEmitterShapeInOut.Outward
+	aura.EmissionDirection = Enum.NormalId.Top
+	aura.Lifetime = NumberRange.new(V.AuraLifetime * 0.7, V.AuraLifetime)
+	aura.Speed = NumberRange.new(V.AuraSpeed * 0.6, V.AuraSpeed)
+	aura.SpreadAngle = Vector2.new(15, 15)
+	aura.Size = NumberSequence.new(V.AuraSizeMin, 0)
+	aura.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.3),
+		NumberSequenceKeypoint.new(0.5, 0.5),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	aura.Rotation = NumberRange.new(-180, 180)
+	aura.RotSpeed = NumberRange.new(-60, 60)
+	auraLight = Instance.new("PointLight")
+	auraLight.Range = V.AuraLightRange
+	auraLight.Color = V.FistColor
+	auraLight.Enabled = false
+	auraLight.Parent = auraAttachment
 
 	RunService.RenderStepped:Connect(update)
 end

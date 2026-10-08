@@ -335,7 +335,7 @@ local Tuning = {
 		SinkMax = 30,
 		PitchMin = -35,
 		PitchMax = 25,
-		YawRate = 90,
+		YawRate = 170, -- review note: air steering felt too stiff; fly where you aim
 		Accel = 60,
 		Decel = 40, -- braking toward a lower target when pitched up
 		FallToForward = 1, -- share of the fall speed shed when levelling out that becomes forward speed
@@ -346,7 +346,8 @@ local Tuning = {
 		BankResponse = 6,
 		BodyPitchFraction = 0.5,
 		LookFollowWeight = 1,
-		LookFollowFullAngle = 45,
+		LookFollowFullAngle = 30, -- a smaller angle reaches the full yaw rate sooner
+		LookPitchWeight = 0.85, -- with no W/S input the glide pitches toward where the camera looks
 		-- A glide only levels out when you ask it to (review note: not holding the dive shouldn't take back the
 		-- momentum of a long fall): pitching up (S, or the camera looking above LevelLookUp of the horizon)
 		-- holds the sink and turns the fall into forward speed; otherwise gravity keeps building the fall, and a
@@ -365,10 +366,10 @@ local Tuning = {
 
 	Dive = {
 		Thrust = 120,
-		ConeStart = 25,
-		ConeEnd = 60,
-		ConeWidenTime = 1,
-		SteerRate = 35,
+		ConeStart = 45, -- review note: wider and quicker, so a dive can be flown at the aim
+		ConeEnd = 110,
+		ConeWidenTime = 0.6,
+		SteerRate = 80,
 		MaxPitch = -10,
 		MinHoldTime = 0.2, -- a tapped dive lasts this long
 	},
@@ -383,7 +384,7 @@ local Tuning = {
 		EnergyCost = 15,
 		PullUpRate = 240, -- degrees per second the flight path rotates upward
 		SteepFraction = 0.3, -- below this share of horizontal speed, pull up toward the camera look
-		YawRate = 120,
+		YawRate = 190,
 	},
 
 	-- Destruction (spec §4.8, §4.12, §15 milestone 4). Damage is in hits: contact speed / Smash.SpeedPerHit against
@@ -654,11 +655,12 @@ local Tuning = {
 			{ 10, 1.8 },
 			{ 25, 2.8 },
 		},
-		-- Review note: the beam must start huge and read as a solid cylinder, not a ribbon.
+		-- Review notes: a solid cylinder, not a ribbon; then "a bit too big: the full charge should be that size and
+		-- it should start at 60% of it".
 		HoldBeamWidths = {
-			{ 3, 34 },
-			{ 10, 70 },
-			{ 25, 130 },
+			{ 3, 28 },
+			{ 10, 38 },
+			{ 25, 48 },
 		},
 		BeamSegments = 4, -- cylinder parts the beam is built from (parts cap at 2,048 studs each)
 		HoldBeamRanges = {
@@ -1568,6 +1570,16 @@ local Tuning = {
 		CashIn = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Ui", Volume = 0.5, Pitch = 1.8 },
 	},
 
+	-- Music (Feel/Music.luau): a shuffled playlist on the Music bus (which the impact silence already ducks),
+	-- crossfading between tracks. Tracks are Roblox audio asset ids ("rbxassetid://..."); empty = no music.
+	Music = {
+		Tracks = {},
+		Volume = 0.5,
+		Crossfade = 3, -- seconds the outgoing and incoming tracks overlap
+		Gap = 0, -- seconds of silence between tracks (negative overlaps more)
+		Shuffle = true,
+	},
+
 	Audio = {
 		BusVolume = 0.25,
 		PitchJitter = 0.05,
@@ -1667,9 +1679,33 @@ local Tuning = {
 		ShotLight = 6,
 		ShotLightRange = 16,
 		ShotTrailLifetime = 0.35,
-		BeamGlowTransparency = 0.6, -- the soft ribbon halo around the solid beam
+		BeamGlowTransparency = 0.7, -- the soft ribbon halo around the solid beam
 		BeamHaloScale = 1.8, -- the halo's width relative to the cylinder
-		BeamShellTransparency = 0.4, -- the cylinder's outer shell; its core is solid
+		BeamShellTransparency = 0.55, -- the cylinder's outer shell (review note: a touch less bright)
+		BeamCoreTransparency = 0.15, -- its core
+		-- Charge colours (review note: the longer you hold, the better it looks; rainbow at max; an aura per
+		-- tier: the punch on the fist, the blast on the other fist, the jump all around you). One colour per
+		-- circle filled, then a hue cycle at max charge; every charge effect (fist flames and glow, the body aura,
+		-- the charge beam, the pebbles, the chest light, the flight trails) takes it.
+		-- The colours themselves are Ui.CircleColors, shared with the charge wheels.
+		RainbowSpeed = 0.6, -- hue cycles per second at max charge
+		-- Fist flames (the Falcon Punch): fire on the charging hand, more and bigger with the charge.
+		FlameTexture = "rbxasset://textures/particles/fire_main.dds",
+		FlameRate = 70, -- at full charge
+		FlameSizeMin = 0.7,
+		FlameSizeMax = 3.2,
+		FlameLifetime = 0.45,
+		FlameSpeed = 6,
+		FlameSpread = 25,
+		-- Body aura while charging a Burst: flames rising around the whole body.
+		AuraRate = 120, -- at full charge
+		AuraSizeMin = 1.5,
+		AuraSizeMax = 4.5,
+		AuraLifetime = 0.7,
+		AuraSpeed = 9,
+		AuraRadius = 2.2, -- studs around the root the flames rise from
+		AuraLightRange = 24,
+		AuraLight = 4,
 		SpiritShellTransparency = 0.35, -- the bomb's outer shell; its core is solid
 		SpiritLight = 10,
 		-- Fist glow sprite while a punch charges.
@@ -2356,6 +2392,16 @@ local Tuning = {
 		-- except the next, shown dim as a tease.
 		WheelShowAfter = 0.3,
 		WheelStartAlpha = 0.3,
+		-- Each action has its own hue ramp (review note), stepping from `From` at the first circle to `To` at the
+		-- last: the Burst green to blue, the punch yellow to red, the blast yellow to violet. The filling ring
+		-- wears its circle's colour, filled rings turn gold, and the charge effects (fist flames, aura, charge
+		-- beam, trails) use the same ramp, rainbow at max.
+		ChargePalettes = {
+			Burst = { From = Color3.fromRGB(120, 255, 150), To = Color3.fromRGB(70, 130, 255) },
+			Punch = { From = Color3.fromRGB(255, 225, 90), To = Color3.fromRGB(255, 60, 50) },
+			Blast = { From = Color3.fromRGB(255, 230, 110), To = Color3.fromRGB(190, 80, 255) },
+		},
+		HopRingColor = Color3.fromRGB(235, 235, 240), -- the jump wheel's hop ring, before the circles
 		XpDevButton = 44, -- Studio-only RESET and MAX level buttons beside the bar, pixels
 		-- XP bar (UI/XpBar.luau): a thin bar across the top with the level beside it. Toasts fly into it and it
 		-- pulses as each one lands; filling it plays the level-up celebration.
@@ -2378,9 +2424,17 @@ local Tuning = {
 		ReleaseHintBursts = 3,
 		ReleaseHintHeight = 7.2, -- studs above the root
 		ReleaseHintSize = 26,
-		-- Other players' rim light (spec §4.3): an outline Highlight so people on the ground watch you go.
+		-- Other players (spec §4.3; review note: always visible with a name and a distance marker): an outline
+		-- Highlight drawn on top, and a marker above the head with the name and "1.2 km" / "340 m" (studs).
 		RemoteOutline = Color3.fromRGB(255, 236, 200),
 		RemoteOutlineTransparency = 0.35,
+		RemoteMarkerHeight = 4, -- studs above the root
+		RemoteNameSize = 18,
+		RemoteDistanceSize = 14,
+		-- The marker shrinks with distance (review note): full size within RefDistance, then scaling down to
+		-- MinScale of it, never smaller.
+		RemoteMarkerRefDistance = 120,
+		RemoteMarkerMinScale = 0.3,
 	},
 
 	Dev = {

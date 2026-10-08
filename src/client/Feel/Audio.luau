@@ -87,6 +87,11 @@ function Audio.apply(entry: { [string]: any }, duration: number)
 	end
 end
 
+-- The SoundGroup for a bus (Music uses it for its tracks).
+function Audio.group(name: string): SoundGroup?
+	return groups[name]
+end
+
 -- Altitude low-pass in dB (0 = open, negative = muffled), set by the atmosphere driver.
 function Audio.setLowPass(db: number)
 	for _, eq in equalizers do
