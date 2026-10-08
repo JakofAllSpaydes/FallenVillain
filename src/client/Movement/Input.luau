@@ -17,6 +17,9 @@ local SECONDARY_INPUTS = { [Enum.UserInputType.MouseButton2] = true, [Enum.KeyCo
 local jumpHeld, jumpPressed, jumpReleased = false, false, false
 local primaryHeld, primaryPressed, primaryReleased = false, false, false
 local secondaryHeld = false
+-- Fed by Movement/TouchControls.luau on touch devices; zero otherwise.
+local touchMove = Vector3.zero
+local touchLook = Vector2.zero
 
 local function matches(set: { [any]: boolean }, input: InputObject): boolean
 	return set[input.KeyCode] == true or set[input.UserInputType] == true
@@ -39,7 +42,7 @@ local function readMove(): Vector3
 	if UserInputService:GetFocusedTextBox() then
 		return Vector3.zero
 	end
-	local move = Vector3.zero
+	local move = touchMove
 	for key, direction in MOVE_KEYS do
 		if UserInputService:IsKeyDown(key) then
 			move += direction
@@ -79,6 +82,39 @@ local function onEnded(input: InputObject)
 	elseif matches(SECONDARY_INPUTS, input) then
 		secondaryHeld = false
 	end
+end
+
+-- Touch buttons set the same held and edge flags as the keys, so the states never know which it was.
+function Input.setTouchJump(held: boolean)
+	if held and not jumpHeld then
+		jumpHeld, jumpPressed = true, true
+	elseif not held and jumpHeld then
+		jumpHeld, jumpReleased = false, true
+	end
+end
+
+function Input.setTouchPrimary(held: boolean)
+	if held and not primaryHeld then
+		primaryHeld, primaryPressed = true, true
+	elseif not held and primaryHeld then
+		primaryHeld, primaryReleased = false, true
+	end
+end
+
+-- Thumbstick, in the move vector's convention (x right, z back), already inside the unit circle.
+function Input.setTouchMove(move: Vector3)
+	touchMove = move
+end
+
+-- Look drag in pixels; the camera rig drains it each frame.
+function Input.addTouchLook(delta: Vector2)
+	touchLook += delta
+end
+
+function Input.takeTouchLook(): Vector2
+	local delta = touchLook
+	touchLook = Vector2.zero
+	return delta
 end
 
 function Input.start()

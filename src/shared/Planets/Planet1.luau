@@ -3,7 +3,7 @@
 -- points at Center everywhere, the surface is an analytic sphere (shared/Globe.luau), and the altar sits on
 -- its top at (0, Radius, 0). A second planet is another module with the same shape.
 
-local Radius = 2500
+local Radius = 5000 -- doubled Oct 8, 2026 (review note: 2,500 still felt small); a lap is about 31,400 studs
 
 return {
 	Name = "Planet1",

@@ -123,9 +123,12 @@ end
 local function altarPosition(): Vector3
 	local altar = workspace:FindFirstChild("World") and workspace.World:FindFirstChild("Altar")
 	if altar and altar:IsA("Model") then
-		local pivot = altar:GetPivot()
-		local _, size = altar:GetBoundingBox()
-		return pivot.Position + MathUtil.upAt(pivot.Position) * size.Y / 2
+		-- Only the altar's direction matters: the spawn always sits on the analytic surface, so a Studio altar
+		-- left at an old radius (the globe has been resized twice) can't put the player inside or above the world.
+		local up = MathUtil.upAt(altar:GetPivot().Position)
+		local probe = Tuning.World.SpawnProbe
+		local hit = Globe.raycast(Planet.Center + up * (Planet.Radius + probe), -up * probe * 2, nil)
+		return if hit then hit.Position else Planet.Center + up * Planet.Radius
 	end
 	return Planet.Center + Vector3.yAxis * Planet.Radius
 end

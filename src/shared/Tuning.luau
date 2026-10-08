@@ -122,9 +122,9 @@ local Tuning = {
 			{ 0, 80 },
 			{ 0.6, 260 },
 			{ 3, 420 },
-			{ 10, 1000 },
-			{ 25, 2800 },
-			{ 60, 7000 },
+			{ 10, 1300 },
+			{ 25, 4500 },
+			{ 60, 14000 },
 		},
 		-- Seconds held where the charge steps up a tier: a chime, a new ring, bigger release juice. Each tier adds a
 		-- ring to the punch wheel; the last ring ends at the last HoldBoosts point.
@@ -137,19 +137,19 @@ local Tuning = {
 
 	Burst = {
 		BaseVelocity = 350,
-		VelocityPerPower = 45,
-		MaxVelocity = 1400,
+		VelocityPerPower = 75, -- Power 25 reaches the top of HoldHeights (about 37,000)
+		MaxVelocity = 2100,
 		-- Height reached for a Space hold of N seconds (from the press), interpolated geometrically between points
 		-- so it starts gentle and climbs harder the longer you hold. Power caps it.
 		HoldHeights = {
 			{ 1, 60 },
 			{ 3, 300 },
 			{ 5, 600 },
-			{ 10, 1600 },
-			{ 15, 2600 },
-			{ 20, 4000 },
-			{ 30, 7500 },
-			{ 60, 18000 },
+			{ 10, 1800 },
+			{ 15, 3400 },
+			{ 20, 6000 },
+			{ 30, 13000 },
+			{ 60, 36000 },
 		},
 		-- Seconds held where the Burst charge steps up a tier (into the clouds, above them). The jump wheel shows a
 		-- hop ring, then one ring per tier, the last ending at the last HoldHeights point.
@@ -275,6 +275,19 @@ local Tuning = {
 
 	Input = {
 		StickDeadzone = 0.2,
+		-- Touch layout (Movement/TouchControls.luau, touch devices only): a dynamic thumbstick on the left, drag to
+		-- look anywhere else, JUMP and PUNCH buttons bottom-right. Pixel sizes are at 1080p and scale with the screen.
+		Touch = {
+			StickZone = 0.45, -- share of the screen width (from the left) where a touch becomes the stick
+			StickRadius = 70, -- pixels the knob travels for full input
+			StickBase = 170, -- diameter of the stick's ring
+			StickKnob = 64, -- diameter of the knob
+			StickDeadzone = 0.12,
+			JumpButton = { Size = 104, Right = 196, Bottom = 118 },
+			PunchButton = { Size = 136, Right = 36, Bottom = 36 },
+			MinScale = 0.75, -- the layout never scales below this on small screens (thumbs don't shrink)
+			MaxScale = 1.25,
+		},
 	},
 
 	Aim = {
@@ -306,6 +319,7 @@ local Tuning = {
 
 	World = {
 		FallOffDepth = 60, -- this far inside the globe's surface counts as fallen through: respawn at the altar
+		SpawnProbe = 200, -- the spawn looks this far above the surface, in the altar's direction, for the altar's top
 	},
 
 	-- Hidden movement tech. All of it comes from input timing; MaxCarrySpeed caps what chains can build.
@@ -342,6 +356,7 @@ local Tuning = {
 		PitchMin = -85,
 		PitchMax = 60,
 		MouseSensitivity = 0.25, -- degrees per pixel, times the player's Roblox sensitivity setting
+		TouchSensitivity = 0.3, -- degrees per pixel of a look drag on touch
 		StickYawRate = 220,
 		StickPitchRate = 140,
 		Distance = {
@@ -1006,7 +1021,7 @@ local Tuning = {
 	Dev = {
 		ChargeSpeed = 2, -- test aid: every hold (hop, Burst, punch) charges this many times faster than real time
 		TraceMovement = true, -- Studio only: print state transitions and bounces, expose Dbg* player attributes
-		DropAltitudes = { 300, 1000, 3000 },
+		DropAltitudes = { 300, 1000, 3000, 10000 },
 		PowerPresets = { 1, 6, 11, 18, 25 },
 		ShowControlsHud = true, -- tester cheat sheet in every build; turn off when milestone 7 hints land
 	},

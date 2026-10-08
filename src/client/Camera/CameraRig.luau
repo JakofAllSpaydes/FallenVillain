@@ -18,6 +18,7 @@ local Tuning = require(Shared.Tuning)
 local Aim = require(script.Parent.Parent.Movement.Aim)
 local CameraEffects = require(script.Parent.CameraEffects)
 local Controller = require(script.Parent.Parent.Movement.Controller)
+local Input = require(script.Parent.Parent.Movement.Input)
 local MathUtil = require(script.Parent.Parent.Movement.MathUtil)
 
 local CameraRig = {}
@@ -36,6 +37,10 @@ local function readLook(dt: number)
 		yaw -= delta.X
 		pitch -= delta.Y
 	end
+	-- Touch look drag (TouchControls): same directions as the mouse.
+	local touch = Input.takeTouchLook() * C.TouchSensitivity
+	yaw -= touch.X
+	pitch -= touch.Y
 	if UserInputService.GamepadEnabled then
 		for _, state in UserInputService:GetGamepadState(Enum.UserInputType.Gamepad1) do
 			if state.KeyCode == Enum.KeyCode.Thumbstick2 and state.Position.Magnitude > Tuning.Input.StickDeadzone then

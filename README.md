@@ -41,7 +41,7 @@ If Studio stops reflecting code changes, check that `rojo serve` is still pushin
 
 Both charges have no time limit and step up in tiers, shown by rings above your head (Space) and beside the crosshair (LMB). In the air, speed never drops on its own: dives keep accelerating and punches add to whatever speed you have. Walls bounce you; dives land and slide, and only bounce off the ground if a punch is held.
 
-The world is a globe (radius 2,500): gravity points at its center and level flight follows the curve, so a long charged punch circles the planet.
+The world is a globe (radius 5,000): gravity points at its center and level flight follows the curve, so a long charged punch circles the planet.
 
 Movement tech (bunny hop, pre-charge, dive slide, dive boost, swoop skim, rocket jump, jump punch, orbit) is described in [SPEC §15](docs/SPEC.md#15-decisions-made-during-implementation).
 

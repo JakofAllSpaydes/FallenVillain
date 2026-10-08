@@ -16,6 +16,7 @@
 - Before any playtest through the Studio MCP, confirm Rojo has synced (read a changed script's `Source` in Studio). `rojo serve` has silently stalled on this OneDrive folder before; if it has, restart it and ask the user to click Connect.
 - The world is a globe (spec §15 milestone 3a): the surface is an analytic sphere (`shared/Globe.luau`), never a collider; every ground query goes through `Globe.raycast`; "up" is `ctx.Up`, never world Y; characters don't physically collide with anything. The visible terrain shell is generated from `Planet.Radius`/`Center` in Studio, not dragged.
 - Stop at the end of each milestone for review in Studio. Don't take screenshots or videos; when something needs visual or feel verification, ask the user to check it in Studio.
+- Touch devices get `Movement/TouchControls.luau` (thumbstick, drag-look, JUMP and PUNCH buttons), which feeds the same `Input` snapshot as the keyboard. New inputs need a touch mapping there and a `TOUCH_KEYS` entry in the cheat sheet. Test the layout with Studio's device emulator.
 - Keep the tester cheat sheet current: every new input, mechanic or movement tech gets a row in `SECTIONS` in `src/client/UI/ControlsHud.luau` in the same change: keycap or action chips plus a label of one or two words, no numbers.
 
 ## Performance rules

@@ -49,6 +49,29 @@ local SECTIONS: { Section } = {
 	},
 }
 
+-- On touch devices the keycaps become the touch layout's controls (Movement/TouchControls.luau); runs of the
+-- same chip collapse, so W A S D reads as one STICK chip.
+local TOUCH_KEYS: { [string]: string } = {
+	W = "STICK",
+	A = "STICK",
+	S = "STICK",
+	D = "STICK",
+	MOUSE = "DRAG",
+	SPACE = "JUMP",
+	LMB = "PUNCH",
+}
+
+local function touchKeys(keys: { string }): { string }
+	local mapped = {}
+	for _, key in keys do
+		local value = TOUCH_KEYS[key] or key
+		if mapped[#mapped] ~= value then
+			table.insert(mapped, value)
+		end
+	end
+	return mapped
+end
+
 -- Chips that describe an action or timing rather than a physical key get the accent style.
 local ACTION_CHIPS = {
 	HOLD = true,
@@ -104,9 +127,13 @@ local function text(parent: Instance, value: string, size: number, order: number
 	return label
 end
 
-local function chip(parent: Instance, value: string, order: number)
+-- A TextLabel, or a TextButton when the chip is tappable (touch footer); both share every property used here.
+local function chip(parent: Instance, value: string, order: number, tappable: boolean?): GuiObject
 	local action = ACTION_CHIPS[value] == true
-	local label = Instance.new("TextLabel")
+	local label: TextLabel = if tappable then Instance.new("TextButton") :: any else Instance.new("TextLabel")
+	if label:IsA("TextButton") then
+		label.AutoButtonColor = false
+	end
 	label.Font = FONT
 	label.Text = value
 	label.TextSize = CHIP_SIZE
@@ -129,6 +156,7 @@ local function chip(parent: Instance, value: string, order: number)
 	border.Color = OUTLINE
 	border.Thickness = 2
 	border.Parent = label
+	return label
 end
 
 local function horizontal(parent: Instance, gap: number, order: number): Frame
@@ -147,10 +175,11 @@ local function horizontal(parent: Instance, gap: number, order: number): Frame
 	return frame
 end
 
-local function row(parent: Instance, data: Row, order: number)
+local function row(parent: Instance, data: Row, order: number, touch: boolean)
 	local line = horizontal(parent, 10, order)
 	local keys = horizontal(line, 4, 1)
-	for index, key in data.Keys do
+	local shown = if touch then touchKeys(data.Keys) else data.Keys
+	for index, key in shown do
 		chip(keys, key, index)
 	end
 	text(line, data.Label, LABEL_SIZE, 2)
@@ -161,6 +190,7 @@ function ControlsHud.start()
 		return
 	end
 	local studio = RunService:IsStudio()
+	local touch = UserInputService.TouchEnabled
 
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "FallControlsHud"
@@ -176,10 +206,11 @@ function ControlsHud.start()
 	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
 	rescale()
 
+	-- Bottom-left on desktop; top-left on touch, clear of the thumbstick zone.
 	local column = Instance.new("Frame")
 	column.BackgroundTransparency = 1
-	column.AnchorPoint = Vector2.new(0, 1)
-	column.Position = UDim2.new(0, 16, 1, -16)
+	column.AnchorPoint = if touch then Vector2.new(0, 0) else Vector2.new(0, 1)
+	column.Position = if touch then UDim2.new(0, 16, 0, 16) else UDim2.new(0, 16, 1, -16)
 	column.AutomaticSize = Enum.AutomaticSize.XY
 	column.Size = UDim2.new()
 	column.Parent = gui
@@ -204,14 +235,36 @@ function ControlsHud.start()
 			title.TextColor3 = TITLE_COLOR
 		end
 		for _, data in section.Rows do
-			row(column, data, nextOrder())
+			row(column, data, nextOrder(), touch)
 		end
 	end
 	local footer = horizontal(column, 10, nextOrder())
 	if studio then
-		row(footer, { Keys = { "F2" }, Label = "Tuning" }, 1)
+		row(footer, { Keys = { "F2" }, Label = "Tuning" }, 1, false)
 	end
-	row(footer, { Keys = { "F3" }, Label = "Hide" }, 2)
+	if touch then
+		-- No keyboard: a tappable HIDE chip folds the sheet down to a HELP chip in the same corner.
+		local help = chip(gui, "HELP", 1, true)
+		help.Position = column.Position
+		help.Visible = false
+		local hide = chip(footer, "HIDE", 2, true)
+		local function fold(hidden: boolean)
+			column.Visible = not hidden
+			help.Visible = hidden
+		end
+		if hide:IsA("GuiButton") then
+			hide.Activated:Connect(function()
+				fold(true)
+			end)
+		end
+		if help:IsA("GuiButton") then
+			help.Activated:Connect(function()
+				fold(false)
+			end)
+		end
+	else
+		row(footer, { Keys = { "F3" }, Label = "Hide" }, 2, false)
+	end
 
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 
