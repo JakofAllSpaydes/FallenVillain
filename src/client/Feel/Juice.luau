@@ -20,6 +20,9 @@
 -- pitchSteps is a semitone scale indexed by the speed as a note index, climbing an octave per wrap (the combo
 -- tick passes its note index as the speed). randomSign flips a kick's sign half the time (camera roll).
 -- bySmashRadius makes a spawn's radius a multiple of the smash radius for the event's speed.
+-- A time entry with ease = true starts at its scale and eases back to 1 over dur (a slow-motion tail).
+-- Juice.fire's `mods` scale an event's sounds (pitch, volume) and spawn amounts (size) for the object it is
+-- about: a big prefab breaks lower and dustier, a far one quieter.
 -- Delayed entries from a state's event are skipped if that state has already ended.
 
 local Tuning = require(game:GetService("ReplicatedStorage").Shared.Tuning)
@@ -38,6 +41,9 @@ local Vfx = require(script.Parent.Vfx)
 local Juice = {}
 
 type Entry = { [string]: any }
+export type Mods = { pitch: number?, volume: number?, size: number? }
+
+local SIZE_AMOUNTS = { "count", "radius", "size" }
 
 local function ascentTime(): number
 	local ctx = Controller.ctx
@@ -109,6 +115,29 @@ local function scaled(entry: Entry, speed: number?): Entry
 	return result
 end
 
+-- Per-object modifiers: sounds take the pitch and volume, spawns grow with the size.
+local function modified(entry: Entry, mods: Mods): Entry
+	local result = table.clone(entry)
+	if entry.sound then
+		if mods.pitch then
+			result.pitch = (result.pitch or 1) * mods.pitch
+		end
+		if mods.volume then
+			result.volume = (result.volume or 1) * mods.volume
+		end
+	elseif entry.spawn and mods.size then
+		for _, key in SIZE_AMOUNTS do
+			if type(result[key]) == "number" then
+				result[key] *= mods.size
+			end
+		end
+		if result.count then
+			result.count = math.max(1, math.round(result.count))
+		end
+	end
+	return result
+end
+
 local function run(entry: Entry, duration: number, position: Vector3?)
 	if entry.cam then
 		CameraEffects.apply(entry, duration)
@@ -124,7 +153,7 @@ local function run(entry: Entry, duration: number, position: Vector3?)
 			Vfx.spawn(entry, duration, at)
 		end
 	elseif entry.time then
-		TimeScale.push(entry.time, duration)
+		TimeScale.push(entry.time, duration, entry.ease == true)
 	elseif entry.haptic then
 		Haptics.apply(entry, duration)
 	elseif entry.ui then
@@ -141,7 +170,8 @@ end
 -- Fire a FeelTable event. `position` places spawns (default: the ground under the local player);
 -- `whileState` cancels delayed entries once the player has left that state. `held` is the hold minHeld and
 -- maxHeld compare against (default: the last Burst's Space hold). `speed` is what minSpeed and bySpeed use.
-function Juice.fire(event: string, position: Vector3?, whileState: string?, held: number?, speed: number?)
+-- `mods` are per-object modifiers (see the header).
+function Juice.fire(event: string, position: Vector3?, whileState: string?, held: number?, speed: number?, mods: Mods?)
 	local entries = Tuning.Feel[event]
 	if not entries then
 		return
@@ -157,6 +187,9 @@ function Juice.fire(event: string, position: Vector3?, whileState: string?, held
 			continue
 		end
 		local entry = scaled(raw, speed)
+		if mods then
+			entry = modified(entry, mods)
+		end
 		local duration = entry.dur or (if entry.durAscent then entry.durAscent * ascent else 0)
 		local delay = entry.delay or (if entry.atApex then ascent + entry.atApex else 0)
 		if delay <= 0 then
@@ -207,6 +240,10 @@ function Juice.start()
 	end)
 	Controller.HitObject:Connect(function(_model, position, _speed, _force, effort)
 		Juice.fire("Hit", position, nil, nil, effort)
+	end)
+	-- Breaking through plays by the speed you carried through it, not by effort (that is what the hit is for).
+	Controller.BrokeThrough:Connect(function(_model, position, speed)
+		Juice.fire("Through", position, nil, nil, speed)
 	end)
 	Juice.fire("Grounded")
 end

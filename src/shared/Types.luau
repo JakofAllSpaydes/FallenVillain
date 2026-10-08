@@ -36,7 +36,9 @@ export type Ctx = {
 	StandHeight: number,
 
 	Input: InputSnapshot,
-	AimPoint: Vector3,
+	AimPoint: Vector3, -- where the aim ray hits, pulled toward a nearby destructible by the magnet (spec §4.6)
+	AimTarget: Model?, -- the destructible the aim is on or magnetised to
+	AimMagnet: number, -- 0–1 how strongly the magnet is pulling this frame
 	LookDirection: Vector3, -- camera look; Glide and Swoop steer toward it
 	Now: number,
 

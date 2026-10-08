@@ -11,7 +11,8 @@ Layers.__index = Layers
 --   expo    e^(−6p) shaped      snappier: most of the hit in the first frames, a long faint tail
 --   spring  damped cosine       overshoots once past zero and settles, for recoil that springs back
 --   hold    flat then quad      full strength for the first third, then decays
-export type Curve = "quad" | "expo" | "spring" | "hold"
+--   slam    fast damped cosine  lands at full, squashes past zero, settles: HUD pops that hit hard
+export type Curve = "quad" | "expo" | "spring" | "hold" | "slam"
 
 type Kick = { Amount: number, Start: number, Duration: number, Curve: Curve }
 type Layer = { From: number, To: number, Start: number, Duration: number, Kicks: { Kick } }
@@ -19,6 +20,8 @@ type Layer = { From: number, To: number, Start: number, Duration: number, Kicks:
 local EXPO_RATE = 6
 local SPRING_CYCLES = 1.25
 local SPRING_DECAY = 4.5
+local SLAM_CYCLES = 1.75
+local SLAM_DECAY = 5
 local HOLD_SHARE = 0.33
 
 local function curve(kind: Curve, p: number): number
@@ -26,6 +29,8 @@ local function curve(kind: Curve, p: number): number
 		return (math.exp(-EXPO_RATE * p) - math.exp(-EXPO_RATE)) / (1 - math.exp(-EXPO_RATE))
 	elseif kind == "spring" then
 		return math.exp(-SPRING_DECAY * p) * math.cos(2 * math.pi * SPRING_CYCLES * p)
+	elseif kind == "slam" then
+		return math.exp(-SLAM_DECAY * p) * math.cos(2 * math.pi * SLAM_CYCLES * p)
 	elseif kind == "hold" then
 		if p < HOLD_SHARE then
 			return 1

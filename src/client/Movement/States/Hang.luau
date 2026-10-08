@@ -1,7 +1,7 @@
 --!strict
--- Hang (spec §3, §4.4): the apex. Near-zero gravity and a slow drift for Hang.Time (shorter after small Bursts),
--- then the wings fold into Glide. Space dives straight out of it. Hang refills glide energy and starts the
--- fall's air-gain ceiling.
+-- Hang (spec §3, §4.4; §15 milestone 5): the apex marker. With Hang.Time 0 (the review cut the float: "start the
+-- fall immediately") it lasts one frame; a positive Time brings back the near-zero-gravity drift before Glide.
+-- Space dives straight out of it. Hang refills glide energy and starts the fall's air-gain ceiling.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Tuning = require(Shared.Tuning)

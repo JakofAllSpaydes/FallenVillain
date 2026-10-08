@@ -1,20 +1,24 @@
 --!strict
--- Character animation (spec §4, §10, §12; §15 milestone 3b). Two layers on the Humanoid rig, R15 first with
--- an R6 fallback (players use both):
+-- Character animation (spec §4, §10, §12; §15 milestones 3b and 5). Two layers on the Humanoid rig, R15 first
+-- with an R6 fallback (players use both):
 --   * Locomotion: Roblox's own stock clips (idle, walk, run, jump, fall; Tuning.Anim.Clips) chosen by state and
 --     ground speed, played through the Animator so they replicate. The character's default Animate script is
 --     disabled: the controller owns every state, so this module owns every clip.
 --   * Poses: every FALL-specific shape (jump-charge squat, punch wind-back, the punch, burst extension, hang,
---     glide, dive, swoop, slide, takeoff stretch, touchdown squash) is a set of joint offsets in Tuning.Poses.
---     Each frame the active poses are summed per joint with their weights, eased, and composed into the
---     joint's Transform in front of whatever the clip wrote, so a punch wind-back layers over a walk and a
---     squat deepens under an idle. Offsets are in the parent part's axes (see Tuning.Poses). Joints are
---     Motor6Ds on classic rigs and AnimationConstraints on current ones (C0 derived, read-only); both expose
---     Transform, which the Animator rewrites each frame for animated joints. Joints no clip is driving keep
---     the last Transform, so the layer remembers what it wrote and never compounds its own offset.
--- State enters and punches snap (spec §4.10: cut in, fade out); everything else eases. Tremble, breathing and
--- dive vibration are added as noise or sine on top of the poses. This module reads the controller; it never
--- drives movement.
+--     glide, dive, swoop, slide, takeoff stretch, touchdown squash, the three-point landing, hit recoil) is a
+--     set of joint offsets in Tuning.Poses. Each frame the active poses are summed per joint with their
+--     weights, and composed into the joint's Transform in front of whatever the clip wrote, so a punch
+--     wind-back layers over a walk and a squat deepens under an idle. Offsets are in the parent part's axes
+--     (see Tuning.Poses). Joints are Motor6Ds on classic rigs and AnimationConstraints on current ones (C0
+--     derived, read-only); both expose Transform, which the Animator rewrites each frame for animated joints.
+--     Joints no clip is driving keep the last Transform, so the layer remembers what it wrote and never
+--     compounds its own offset.
+-- Every joint channel follows its target on a damped spring (Tuning.Anim.SpringFrequency / SpringDamping), so
+-- poses land with a little overshoot and settle; state enters and punches snap with the faster, bouncier pair
+-- for SnapTime (spec §4.10: cut in, fade out). On top of the poses: the head looks at the aim point, the body
+-- leans into ground acceleration, the wings flutter and flex in a glide, a fast dive tightens, and tremble,
+-- breathing and dive vibration are added as noise or sine. This module reads the controller; it never drives
+-- movement.
 
 local RunService = game:GetService("RunService")
 
@@ -39,11 +43,13 @@ type Joint = {
 	Rotation: CFrame, -- rest C0 rotation
 	Inverse: CFrame, -- rest C0 inverse
 	Current: { number },
+	Velocity: { number }, -- spring velocity per channel
 	Target: { number },
 	LastWritten: CFrame?, -- the Transform this layer wrote last frame
 	LastBase: CFrame, -- the clip's Transform that write was layered on
 }
-type Kick = { Start: number, Duration: number, Amount: number }
+-- A one-shot pose weight: full for Hold seconds, then decaying to zero by Duration.
+type Kick = { Start: number, Duration: number, Hold: number, Amount: number }
 
 -- Abstract joint → { part that holds the Motor6D, motor name } per rig.
 local RIGS: { [string]: { [string]: { string } } } = {
@@ -71,9 +77,13 @@ local RIGS: { [string]: { [string]: { string } } } = {
 }
 
 local GROUND_STATES: { [string]: boolean } = { Grounded = true, Landing = true, Charging = true, Slide = true }
+local LEAN_STATES: { [string]: boolean } = { Grounded = true, Landing = true }
 local BIND_RETRY_TIME = 5 -- seconds to keep looking for joints that load late; not a feel value
 local FOREIGN_SWEEP_INTERVAL = 0.25 -- seconds between sweeps of the default Animate script's tracks
 local NOISE_SEED_P, NOISE_SEED_S, NOISE_SEED_V = 3.7, 29.1, 61.3 -- decorrelate tremble axes; not a feel value
+local SPRING_SUBSTEP = 1 / 120 -- integration step for the joint springs; not a feel value
+local SPRING_MAX_SUBSTEPS = 4
+local LOOK_HEIGHT = 1.5 -- studs above the root the look-at measures from; not a feel value
 
 local character: Model? = nil
 local rigName = "R15"
@@ -85,26 +95,42 @@ local tracks: { [string]: AnimationTrack } = {}
 local playing: string? = nil
 local snapUntil = 0
 local kicks: { [string]: Kick } = {}
+local lastLevel = Vector3.zero -- level velocity last frame, for the acceleration lean
+local leanAccel = Vector3.zero -- smoothed level acceleration
 
 local function kickValue(name: string, now: number): number
 	local kick = kicks[name]
 	if not kick then
 		return 0
 	end
-	local p = (now - kick.Start) / kick.Duration
-	if p >= 1 then
+	local age = now - kick.Start
+	if age >= kick.Duration then
 		kicks[name] = nil
 		return 0
 	end
+	if age < kick.Hold then
+		return kick.Amount
+	end
+	local p = (age - kick.Hold) / math.max(kick.Duration - kick.Hold, 1e-3)
 	return kick.Amount * (1 - p) ^ 2
 end
 
-local function kick(name: string, amount: number, duration: number)
-	kicks[name] = { Start = os.clock(), Duration = math.max(duration, 1e-3), Amount = amount }
+local function kick(name: string, amount: number, duration: number, hold: number?)
+	kicks[name] = {
+		Start = os.clock(),
+		Duration = math.max(duration, 1e-3),
+		Hold = math.clamp(hold or 0, 0, duration),
+		Amount = amount,
+	}
 end
 
 local function snap()
 	snapUntil = os.clock() + Tuning.Anim.SnapTime
+end
+
+-- 0–1 that approaches 1 as `value` grows past `ref`, with no cap.
+local function saturate(value: number, ref: number): number
+	return 1 - math.exp(-math.max(0, value) / math.max(ref, 1e-3))
 end
 
 -- Finds the rig's joints and remembers their rest C0 (the pose offsets are relative to it).
@@ -126,6 +152,7 @@ local function findJoints(model: Model)
 				Rotation = c0.Rotation,
 				Inverse = c0:Inverse(),
 				Current = { 0, 0, 0, 0, 0 },
+				Velocity = { 0, 0, 0, 0, 0 },
 				Target = { 0, 0, 0, 0, 0 },
 				LastWritten = nil,
 				LastBase = CFrame.identity,
@@ -194,6 +221,8 @@ local function bind(ctx: Types.Ctx)
 	rigName = if ctx.Humanoid.RigType == Enum.HumanoidRigType.R6 then "R6" else "R15"
 	joints = {}
 	kicks = {}
+	lastLevel = Vector3.zero
+	leanAccel = Vector3.zero
 	boundAt = os.clock()
 	findJoints(ctx.Character)
 	loadClips(ctx.Humanoid)
@@ -272,7 +301,55 @@ local function lastBurstTier(): number
 	return heights[#heights][1]
 end
 
-local function buildTargets(ctx: Types.Ctx, now: number)
+-- The head (and a share of the waist) turns toward the aim point, measured in the body's frame.
+local function addLook(ctx: Types.Ctx)
+	local A = Tuning.Anim
+	local weight = A.LookWeights[ctx.State]
+	if not weight or weight <= 0 then
+		return
+	end
+	local from = ctx.Root.Position + ctx.Up * LOOK_HEIGHT
+	local toAim = ctx.AimPoint - from
+	if toAim.Magnitude < 1 then
+		return
+	end
+	local local_ = ctx.Root.CFrame:VectorToObjectSpace(toAim.Unit)
+	-- The body looks down -Z; yaw is positive to the character's left, pitch positive up.
+	local yaw = math.clamp(math.deg(math.atan2(-local_.X, -local_.Z)), -A.LookYawMax, A.LookYawMax)
+	local pitch = math.clamp(math.deg(math.asin(math.clamp(local_.Y, -1, 1))), -A.LookPitchMax, A.LookPitchMax)
+	local neck = joints.Neck
+	local waist = joints.Waist
+	local waistShare = if waist then A.LookWaistShare else 0
+	if neck then
+		neck.Target[1] += pitch * weight
+		neck.Target[2] += yaw * weight * (1 - waistShare)
+	end
+	if waist then
+		waist.Target[2] += yaw * weight * waistShare
+		waist.Target[1] += pitch * weight * waistShare * 0.5
+	end
+end
+
+-- The body leans into level acceleration on the ground: forward when speeding up, back when braking, and
+-- into turns.
+local function addLean(ctx: Types.Ctx, dt: number)
+	local A = Tuning.Anim
+	local P = Tuning.Poses
+	local level = MathUtil.flat(ctx.Velocity, ctx.Up)
+	local accel = if dt > 1e-4 then (level - lastLevel) / dt else Vector3.zero
+	lastLevel = level
+	if not LEAN_STATES[ctx.State] then
+		accel = Vector3.zero
+	end
+	leanAccel = leanAccel:Lerp(accel, math.clamp(A.LeanSmooth * dt, 0, 1))
+	local right = ctx.Heading:Cross(ctx.Up)
+	local forward = math.clamp(leanAccel:Dot(ctx.Heading) * A.LeanPerAccel, -A.LeanMax, A.LeanMax)
+	local side = math.clamp(leanAccel:Dot(right) * A.LeanPerAccel, -A.LeanMax, A.LeanMax)
+	addPose(P.LeanForward, forward)
+	addPose(P.LeanSide, side)
+end
+
+local function buildTargets(ctx: Types.Ctx, now: number, dt: number)
 	local P = Tuning.Poses
 	local A = Tuning.Anim
 	for _, joint in joints do
@@ -282,6 +359,7 @@ local function buildTargets(ctx: Types.Ctx, now: number)
 
 	local state = ctx.State
 	local speed = ctx.Velocity.Magnitude
+	local climb = ctx.Velocity:Dot(ctx.Up)
 
 	-- The flying punch: for the attack window after a release, in the air, the punch pose takes over the
 	-- state's pose (held, then eased out), so a dash reads as a punch rather than a dive.
@@ -303,9 +381,14 @@ local function buildTargets(ctx: Types.Ctx, now: number)
 	elseif state == "Glide" then
 		addPose(P.Glide, stateWeight)
 		addPose(P.GlideBank, ctx.Bank / Tuning.Glide.BankMax)
+		-- Wing life: flex with the climb, and a slow flutter (per unit of the GlideFlex pose's 16° sweep).
+		local flex = math.clamp(climb / math.max(A.GlideFlexRef, 1e-3), -1, 1)
+		local flutter = math.sin(now * 2 * math.pi * A.GlideFlutterHz) * A.GlideFlutter / 16
+		addPose(P.GlideFlex, (flex + flutter) * stateWeight)
 	elseif state == "Dive" then
 		addPose(P.Dive, stateWeight)
 		addPose(P.DiveTight, math.clamp(ctx.StateTime / A.DiveTightenTime, 0, 1) * stateWeight)
+		addPose(P.DiveSpeed, saturate(speed, A.DiveSpeedRef) * stateWeight)
 		local vibration = A.DiveShake * (1 - math.exp(-speed / A.DiveShakeRef))
 		local root = joints.Root
 		if root then
@@ -320,6 +403,7 @@ local function buildTargets(ctx: Types.Ctx, now: number)
 		addPose(P.Slide, 1)
 	elseif state == "Hop" then
 		addPose(P.Hop, stateWeight)
+		addPose(P.HopFall, math.clamp(-climb / math.max(A.HopFallRef, 1e-3), 0, 1) * stateWeight)
 	end
 	addPose(P.PunchFlight, flight)
 
@@ -351,18 +435,37 @@ local function buildTargets(ctx: Types.Ctx, now: number)
 		addNoise("RShoulder", now, A.WindTremble * tiers, 1, 3)
 	end
 
+	addLook(ctx)
+	addLean(ctx, dt)
+
+	-- One-shots: the punch, takeoff stretch, touchdown squash, the three-point landing, hit recoil, the
+	-- break-through snap and the ignition whip.
 	addPose(P.PunchOut, kickValue("PunchOut", now))
 	addPose(P.Squash, kickValue("Squash", now))
 	addPose(P.Stretch, kickValue("Stretch", now))
+	addPose(P.ThreePoint, kickValue("ThreePoint", now))
+	addPose(P.Recoil, kickValue("Recoil", now))
+	addPose(P.Through, kickValue("Through", now))
+	addPose(P.BurstKick, kickValue("BurstKick", now))
 end
 
+-- Every channel follows its target on a damped spring, substepped for stability at the snap frequency.
 local function writeJoints(dt: number, now: number)
 	local A = Tuning.Anim
-	local rate = if now < snapUntil then A.SnapResponse else A.Response
+	local snapping = now < snapUntil
+	local omega = 2 * math.pi * (if snapping then A.SnapFrequency else A.SpringFrequency)
+	local damping = if snapping then A.SnapDamping else A.SpringDamping
+	local steps = math.clamp(math.ceil(dt / SPRING_SUBSTEP), 1, SPRING_MAX_SUBSTEPS)
+	local h = dt / steps
 	for _, joint in joints do
-		local c, t = joint.Current, joint.Target
+		local c, v, t = joint.Current, joint.Velocity, joint.Target
 		for index = 1, 5 do
-			c[index] = MathUtil.approach(c[index], t[index], rate, dt)
+			local x, vel = c[index], v[index]
+			for _ = 1, steps do
+				vel += (omega * omega * (t[index] - x) - 2 * damping * omega * vel) * h
+				x += vel * h
+			end
+			c[index], v[index] = x, vel
 		end
 		-- Part1 = Part0 × C0 × Transform × C1⁻¹. The offset wants to sit at the pivot in Part0's axes:
 		-- Part0 × [translation] × [rotation in Part0's axes] × C0 × clip, so Transform = C0⁻¹ × that × clip.
@@ -392,7 +495,7 @@ local function update(dt: number)
 	end
 	local now = os.clock()
 	playClip(chooseClip(ctx))
-	buildTargets(ctx, now)
+	buildTargets(ctx, now, dt)
 	writeJoints(dt, now)
 end
 
@@ -402,9 +505,16 @@ function Anim.start()
 		snap()
 		if to == "Hop" then
 			kick("Stretch", 1, A.StretchTime)
+		elseif to == "Burst" then
+			kick("BurstKick", 1, A.BurstKickTime)
 		elseif to == "Landing" or to == "Slide" then
 			local speed = if payload ~= nil and payload.Speed then payload.Speed else 0
 			kick("Squash", math.clamp(speed / A.SquashFullSpeed, A.SquashMin, 1), A.SquashTime)
+			-- A fast dive landing is the three-point landing (spec §4.8): held through the hitstop and a beat.
+			if to == "Landing" and payload ~= nil and payload.FromDive and speed >= A.ThreePointMinSpeed * 0.5 then
+				local amount = math.clamp(speed / math.max(A.ThreePointMinSpeed, 1e-3), 0, 1)
+				kick("ThreePoint", amount, A.ThreePointTime, A.ThreePointHold)
+			end
 		end
 	end)
 	Punch.Fired:Connect(function(kind)
@@ -412,6 +522,20 @@ function Anim.start()
 			snap()
 			kick("PunchOut", 1, A.PunchOutTime)
 		end
+	end)
+	-- Hitting something that holds folds the body back by how hard it resisted; a bounce off a wall the same.
+	Controller.Damaged:Connect(function(_model, _position, _left, effort)
+		snap()
+		kick("Recoil", math.clamp(effort / math.max(A.RecoilFullSpeed, 1e-3), A.RecoilMin, 1), A.RecoilTime)
+	end)
+	Controller.Bounced:Connect(function(_position, speed)
+		snap()
+		kick("Recoil", math.clamp(speed / math.max(A.RecoilFullSpeed, 1e-3), A.RecoilMin, 1), A.RecoilTime)
+	end)
+	-- Breaking through: the lead fist punches on.
+	Controller.BrokeThrough:Connect(function(_model, _position, speed)
+		snap()
+		kick("Through", math.max(0.4, saturate(speed, A.ThroughFullSpeed)), A.ThroughTime)
 	end)
 	-- After the Animator has written this frame's clip Transforms, before physics poses the parts.
 	RunService.PreSimulation:Connect(update)

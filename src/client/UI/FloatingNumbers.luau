@@ -55,9 +55,10 @@ local function update()
 				item.Gui.StudsOffsetWorldSpace = item.Origin + item.Up * (U.FloatRise * rise)
 				item.Label.TextTransparency = 1 - U.FloatAlpha * (1 - p * p)
 				item.Label.TextStrokeTransparency = item.Label.TextTransparency
-				-- Pop in oversized and settle.
-				local pop = math.clamp(1 - (now - item.Start) / U.FloatPopTime, 0, 1)
-				item.Scale.Scale = 1 + (U.FloatPopScale - 1) * pop * pop
+				-- Slam in oversized, squash, settle (the Layers slam shape).
+				local q = (now - item.Start) / math.max(U.FloatPopTime, 1e-3)
+				local pop = if q >= 1 then 0 else math.exp(-5 * q) * math.cos(2 * math.pi * 1.75 * q)
+				item.Scale.Scale = math.max(0.2, 1 + (U.FloatPopScale - 1) * pop)
 			end
 		end
 	end

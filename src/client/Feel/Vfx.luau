@@ -3,7 +3,9 @@
 -- at start; nothing is created in the hot path. Ground effects are thin parts carrying a soft decal from the
 -- game's own textures (Tuning.Vfx.*Texture) laid flat on the globe, not neon primitives.
 -- Layers (held values tweened by FeelTable): CrackRadius, ChestLight, ChargeBeam, Trails.
--- Driven (set per frame by Feel/Drivers): SpeedLines, Embers, Fist, Trails.
+-- Driven (set per frame by Feel/Drivers): SpeedLines, Embers, Fist, Trails, and the smash preview
+-- (Vfx.setPreview: a ring and faint disc on the ground at the aim point sized to the smash radius, with the
+-- dive approach's glow spot; spec §4.6).
 -- Spawns (one-shots at a position): Shockwave, Flash3D, DustRing, Dust, Sparks, Debris, Crater, LightColumn.
 
 local RunService = game:GetService("RunService")
@@ -63,6 +65,11 @@ local fistMotes: ParticleEmitter
 local fistGlow: ImageLabel
 local fistAttachment: Attachment
 local fistCharacter: Model? = nil
+
+local previewRing: Decal2
+local previewFill: Decal2
+local previewSpot: ImageLabel
+local previewSpotGui: BillboardGui
 
 local shockwaves: { Shockwave } = {}
 local flashes: { Flash } = {}
@@ -155,6 +162,35 @@ end
 -- Per-frame 0–1 for a driven effect (SpeedLines, Embers, Fist, Trails).
 function Vfx.drive(name: string, value: number)
 	driven[name] = value
+end
+
+-- The smash preview this frame (spec §4.6): a ring of `radius` on the ground at `position` (nil hides it),
+-- `alpha` 0–1, warmed by `hot` (0–1, over a destructible), with the approach spot at `spot` 0–1.
+function Vfx.setPreview(position: Vector3?, radius: number, alpha: number, hot: number, spot: number)
+	local P = Tuning.Preview
+	if not position or alpha <= 0.01 then
+		previewRing.Decal.Transparency = 1
+		previewFill.Decal.Transparency = 1
+		previewSpotGui.Enabled = false
+		return
+	end
+	local color = P.ColdColor:Lerp(P.HotColor, hot)
+	placeDecal(previewRing, position, math.max(radius, 0.5), DECAL_LIFT * 3)
+	previewRing.Decal.Color3 = color
+	previewRing.Decal.Transparency = 1 - alpha
+	placeDecal(previewFill, position, math.max(radius, 0.5), DECAL_LIFT * 2.5)
+	previewFill.Decal.Color3 = color
+	previewFill.Decal.Transparency = 1 - alpha * P.FillAlpha
+	if spot > 0.01 then
+		local size = radius * 2 * P.ApproachSpot * (0.4 + 0.6 * spot)
+		previewSpotGui.Enabled = true
+		previewSpotGui.StudsOffsetWorldSpace = position + MathUtil.upAt(position) * (radius * 0.2)
+		previewSpotGui.Size = UDim2.fromScale(size, size)
+		previewSpot.ImageColor3 = color
+		previewSpot.ImageTransparency = 1 - P.ApproachSpotAlpha * spot
+	else
+		previewSpotGui.Enabled = false
+	end
 end
 
 function Vfx.spawn(entry: { [string]: any }, duration: number, position: Vector3)
@@ -435,6 +471,10 @@ function Vfx.start()
 	folder.Parent = workspace.CurrentCamera
 
 	crack = decalPart(V.CrackTexture, V.CrackColor)
+	previewRing = decalPart(V.RingTexture, Tuning.Preview.ColdColor)
+	previewFill = decalPart(V.GlowTexture, Tuning.Preview.ColdColor)
+	previewSpotGui, previewSpot = glowBillboard(1, Tuning.Preview.HotColor)
+	previewSpotGui.Parent = workspace.Terrain
 
 	beamBase, beamTop = terrainAttachment(), terrainAttachment()
 	beam = makeBeam(beamBase, beamTop)

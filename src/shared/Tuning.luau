@@ -146,6 +146,9 @@ local TOUCHDOWN: FeelList = {
 		fullSpeed = HEAVY_FULL,
 	},
 	{ time = 0, dur = 0.38, durMin = 0.18, bySpeed = true, minSpeed = HEAVY_MIN, fullSpeed = HEAVY_FULL },
+	-- After the freeze, the world comes back in slow motion and eases up to speed (review note: time slowdowns
+	-- on the bigger impacts). The lowest active scale wins, so this takes over as the freeze ends.
+	{ time = 0.3, dur = 0.9, durMin = 0.45, ease = true, bySpeed = true, minSpeed = HEAVY_MIN, fullSpeed = HEAVY_FULL },
 	{
 		cam = "shake",
 		kick = 1.6,
@@ -302,9 +305,12 @@ local Tuning = {
 		HangEntryVerticalSpeed = 5,
 	},
 
+	-- The apex (review note, milestone 5: "the apex freeze is weird; start the fall immediately"). Hang is now
+	-- a one-frame marker: it still refills glide energy, sets the fall peak, rings the chime and shows the
+	-- altitude record, but with Time 0 the fall begins at once. Raise Time to bring the §4.4 float back.
 	Hang = {
-		Time = 4, -- spec range is 2–6 s; the Hang stat that spreads it is cut from MVP
-		MinTime = 0.4, -- small Bursts hang for Time scaled by their feel charge, never less than this
+		Time = 0,
+		MinTime = 0, -- small Bursts hang for Time scaled by their feel charge, never less than this
 		DriftSpeed = 8,
 		DriftAccel = 12,
 	},
@@ -408,6 +414,54 @@ local Tuning = {
 		EdgeDamageShare = 0.35, -- damage at the edge of the radius relative to the centre, so towns crumble from the hit side
 		ContactRadius = 6, -- a non-dive contact breaks what it touched plus this much around it
 		RehitTime = 0.5, -- seconds before the same object can be hit again while you pass through it
+		PitchBySize = 0.35, -- break sounds drop in pitch with the prefab's scale (pitch × scale^-this)
+		CountBySize = 0.5, -- break dust, debris and sparks grow with the prefab's scale (count × scale^this)
+	},
+
+	-- Health reveal (spec §4.12, milestone 5): what a destructible you hit but didn't finish shows. From the
+	-- local damage prediction (Controller), so it is the object you touched.
+	Reveal = {
+		CrackHealth = 0.5, -- cracks appear on the hit face at or under this share of health
+		LeanHealth = 0.25, -- the lean starts at or under this share, tipping away from the hit
+		LeanDegrees = 4, -- degrees of lean at the threshold...
+		LeanMaxDegrees = 9, -- ...growing to this as health runs out
+		LeanTime = 0.35, -- seconds the lean eases in
+		WobbleDegrees = 3.5, -- degrees of shudder on a hit that doesn't break, at WobbleFullSpeed of effort
+		WobbleFullSpeed = 400,
+		WobbleTime = 0.55,
+		WobbleCycles = 2.5,
+		CrackPool = 48, -- pooled crack decals shared by every damaged object
+		CracksPerObject = 4,
+		CrackTransparency = 0.25,
+		HighlightPool = 8, -- pooled Highlights for the hit flash (the engine caps Highlights at 31)
+		FlashTime = 0.3, -- the hit flash fades over this
+		FlashFill = 0.35, -- fill transparency at the start of the flash (0 = solid)
+		FlashColor = Color3.fromRGB(255, 245, 230),
+	},
+
+	-- Smash preview and aim magnet (spec §4.6): a ring on the ground at the aim point sized to the smash radius
+	-- at the current speed, brighter over a destructible; the aim point eases toward the nearest destructible
+	-- within Aim.MagnetRadius; and the "oh no" approach when a dive is ApproachTime from its target.
+	Preview = {
+		States = { Hang = true, Glide = true, Dive = true, Swoop = true, Hop = true },
+		-- Kept quiet on purpose (review note: "not bad but a bit distracting"): a thin faint ring, barely any
+		-- fill, a pale warm tint rather than orange.
+		FullSpeed = 400, -- the ring is at full strength here
+		MinAlpha = 0.1, -- ring alpha at Smash.MinSpeed...
+		MaxAlpha = 0.45, -- ...and at FullSpeed
+		HotBoost = 0.12, -- extra alpha over a destructible
+		FillAlpha = 0.06, -- the faint disc inside the ring
+		Response = 18, -- 1/seconds the radius and alpha follow
+		GroundProbe = 600, -- how far below the aim point to look for the ground the ring sits on
+		ColdColor = Color3.fromRGB(235, 240, 255),
+		HotColor = Color3.fromRGB(255, 222, 180),
+		ReticleRing = 26, -- pixels the crosshair's magnet ring grows to
+		ReticleResponse = 16,
+		ApproachTime = 1.5, -- seconds from impact at the current speed when the approach beat starts
+		ApproachBloom = 0.8, -- bloom added at the moment of impact
+		ApproachSpot = 1.1, -- the target's glow spot, relative to the smash radius
+		ApproachSpotAlpha = 0.3,
+		ApproachPitchRise = 0.7, -- the drone's playback speed rises by this at impact
 	},
 
 	-- Chunks: client-only pooled parts copied from the broken prefab's own parts and flung from the smash centre
@@ -432,6 +486,13 @@ local Tuning = {
 
 	Rebuild = {
 		Delay = 75, -- seconds after a break before the prefab snaps back (spec §4.12)
+		-- Scaffolding ghost (spec §4.12): the broken prefab fades back in translucent and rising out of the ground
+		-- for the last GhostTime before the snap, so you see the town coming back and know to go up again.
+		GhostTime = 5,
+		GhostTransparency = 0.72, -- how see-through the ghost is when fully in
+		GhostRise = 6, -- studs the ghost rises as it fades in
+		GhostPulse = 0.1, -- transparency pulse on the ghost
+		GhostPulseHz = 1.5,
 	},
 
 	-- World generation (server/WorldGen.luau, spec §15 milestone 4): the server lays the prefab templates out over
@@ -565,9 +626,10 @@ local Tuning = {
 
 	Aim = {
 		MaxDistance = 2000,
-		MagnetRadius = 30,
-		MagnetStrength = 0.4,
+		MagnetRadius = 30, -- destructibles this close to the aim ray's hit pull the aim point (spec §4.6)
+		MagnetStrength = 0.4, -- how far toward the nearest one the aim point moves at zero distance
 		FirstRunMagnetStrength = 0.7,
+		MagnetMaxParts = 24, -- parts the per-frame magnet query may return
 	},
 
 	Physics = {
@@ -775,26 +837,20 @@ local Tuning = {
 			{ cam = "tilt", to = 0, dur = 0.5 },
 		},
 
-		-- §4.4: the slow pull-back, silence, the god-ray, the altitude.
+		-- §4.4, reduced to the apex beat (the float itself is gone, Hang.Time 0): the chime, the ascent camera
+		-- releasing, a moment of quiet wind and the altitude record, which stays up for a breath into the fall.
 		Hang = {
 			{ sound = "HangChime" },
-			{ cam = "fovOffset", to = 0, dur = 1.5 },
-			{ cam = "distanceOffset", to = 18, dur = 1.5 },
-			{ cam = "tilt", to = 0, dur = 1.5 },
+			{ cam = "fovOffset", to = 0, dur = 0.6 },
+			{ cam = "distanceOffset", to = 0, dur = 0.8 },
+			{ cam = "tilt", to = 0, dur = 0.6 },
 			{ cam = "shake", to = 0, dur = 0 },
-			{ post = "Bloom", to = 0.3, dur = 1.5 },
-			{ post = "Vignette", to = 0.2, dur = 1.5 },
-			{ post = "SunRays", to = 0.2, dur = 1.5 },
-			{ loop = "Wind", to = 0, dur = 0.6 },
-			{ ui = "Altitude", to = 1, dur = 0.8, record = 1 },
+			{ loop = "Wind", to = 0, dur = 0.2 },
+			{ ui = "Altitude", to = 1, dur = 0.3, record = 1 },
 		},
 		ExitHang = {
-			{ sound = "WingFold" },
-			{ cam = "distanceOffset", to = 0, dur = 1 },
-			{ post = "Bloom", to = 0, dur = 0.6 },
-			{ post = "Vignette", to = 0, dur = 0.6 },
-			{ post = "SunRays", to = 0, dur = 0.6 },
-			{ ui = "Altitude", to = 0, dur = 0.4 },
+			{ sound = "WingFold", delay = 0.25 },
+			{ ui = "Altitude", to = 0, dur = 0.5, delay = 1.6 },
 		},
 
 		-- Punch releases scale by tier (minHeld is the LMB hold in seconds); every release stops the charge hum.
@@ -945,8 +1001,9 @@ local Tuning = {
 				minSpeed = 40,
 				fullSpeed = 600,
 			},
-			-- Fast hits get an impact frame of their own.
+			-- Fast hits get an impact frame of their own, and a wall that stops you hard comes back in slow motion.
 			{ time = 0, dur = 0.08, durMin = 0.02, bySpeed = true, minSpeed = 250, fullSpeed = 1200 },
+			{ time = 0.35, dur = 0.4, durMin = 0.2, ease = true, bySpeed = true, minSpeed = 400, fullSpeed = 1200 },
 			{
 				post = "Flash",
 				kick = 0.4,
@@ -1017,8 +1074,45 @@ local Tuning = {
 				fullSpeed = 1200,
 			},
 		},
-		-- A cluster snapping back (spec §4.12).
-		Rebuild = { { sound = "RebuildChime" } },
+		-- Breaking through a destructible (the contact finished it): a pop of speed, a flick of the camera and
+		-- sparks, so every tree you cut through registers without slowing the run.
+		Through = {
+			{ sound = "Through", volume = 1, bySpeed = true, minSpeed = 40, fullSpeed = 600 },
+			{
+				cam = "fovOffset",
+				kick = 3,
+				dur = 0.25,
+				curve = "spring",
+				bySpeed = true,
+				minSpeed = 40,
+				fullSpeed = 600,
+			},
+			{
+				haptic = "Rumble",
+				kick = 0.25,
+				dur = 0.12,
+				curve = "expo",
+				bySpeed = true,
+				minSpeed = 40,
+				fullSpeed = 600,
+			},
+			{ spawn = "Sparks", count = 10, bySpeed = true, minSpeed = 40, fullSpeed = 600 },
+			{
+				post = "Flash",
+				kick = 0.12,
+				dur = 0.15,
+				curve = "expo",
+				bySpeed = true,
+				minSpeed = 300,
+				fullSpeed = 1000,
+			},
+		},
+		-- A prefab snapping back after its ghost (spec §4.12): a chime, a pop of light and a puff.
+		Rebuild = {
+			{ sound = "RebuildChime" },
+			{ spawn = "Flash3D", size = 8, lift = 4, dur = 0.3 },
+			{ spawn = "Dust", count = 10 },
+		},
 		-- Combo counter tick: a short rising arpeggio, one note per hit, resetting every 8 (the event's speed is the
 		-- note index 0–7, so pitchBySpeed steps the pitch).
 		-- The combo tick climbs a pentatonic scale (pitchSteps, in semitones, indexed by the event's speed) and the
@@ -1040,7 +1134,11 @@ local Tuning = {
 			{ spawn = "DustRing", radius = 12, count = 60 },
 			{ sound = "HeavyLand", volume = 0.6 },
 			{ cam = "shake", kick = 0.5, freq = 35, dur = 0.3, curve = "expo" },
+			{ cam = "fovOffset", kick = -3, dur = 0.3, curve = "spring" },
 			{ haptic = "Rumble", kick = 0.4, dur = 0.2, curve = "expo" },
+			-- A big building falling gets a slow-motion beat of its own (review note: time slowdowns on bigger impacts).
+			{ time = 0.45, dur = 0.22, ease = true },
+			{ post = "Flash", kick = 0.18, dur = 0.2, curve = "expo" },
 		},
 		-- A car popping half a second after it breaks (spec §4.12; visual only, no chain damage yet).
 		CarPop = {
@@ -1056,6 +1154,9 @@ local Tuning = {
 			{ sound = "TierChime2", pitchBySpeed = 0.08 },
 			{ haptic = "Rumble", kick = 0.25, dur = 0.12 },
 			{ post = "Flash", kick = 0.12, dur = 0.2, curve = "expo" },
+			-- From WRECKING BALL up the tier lands with a lean-in and a slow-motion beat.
+			{ cam = "fovOffset", kick = 4, dur = 0.35, curve = "spring", minSpeed = 3 },
+			{ time = 0.35, dur = 0.35, ease = true, minSpeed = 4 },
 		},
 		RemoteBurst = {
 			{ spawn = "LightColumn", height = 3000, width = 4, alpha = 0.7, dur = 3 },
@@ -1098,29 +1199,55 @@ local Tuning = {
 		-- Destruction placeholders (engine built-ins until the audio pass): one per break family, a contact hit,
 		-- the rebuild chime, the combo arpeggio tick and the cash-in chime.
 		-- Break sounds carry a wide pitch jitter so a wave of breaks doesn't sound copy-pasted.
-		BreakWood = { Id = "rbxasset://sounds/snap.mp3", Bus = "Sfx", Volume = 0.7, Pitch = 0.8, Jitter = 0.18 },
+		-- `Ids` lists variations picked at random per play (spec §4.12: one sound set with variations per family).
+		BreakWood = {
+			Id = "rbxasset://sounds/snap.mp3",
+			Ids = { "rbxasset://sounds/snap.mp3", "rbxasset://sounds/collide.wav" },
+			Bus = "Sfx",
+			Volume = 0.7,
+			Pitch = 0.8,
+			Jitter = 0.18,
+		},
 		BreakStone = {
 			Id = "rbxasset://sounds/impact_explosion_03.mp3",
+			Ids = { "rbxasset://sounds/impact_explosion_03.mp3", "rbxasset://sounds/collide.wav" },
 			Bus = "Sfx",
 			Volume = 0.6,
 			Pitch = 0.5,
 			Jitter = 0.18,
 		},
 		BreakGlass = {
-			Id = "rbxasset://sounds/electronicpingshort.wav",
+			Id = "rbxasset://sounds/glassbreak.wav",
 			Bus = "Sfx",
-			Volume = 0.5,
-			Pitch = 1.6,
-			Jitter = 0.18,
+			Volume = 0.55,
+			Pitch = 1.1,
+			Jitter = 0.2,
 		},
 		BreakMetal = {
-			Id = "rbxasset://sounds/action_jump_land.mp3",
+			Id = "rbxasset://sounds/collide.wav",
+			Ids = { "rbxasset://sounds/collide.wav", "rbxasset://sounds/action_jump_land.mp3" },
 			Bus = "Sfx",
 			Volume = 0.7,
 			Pitch = 0.5,
 			Jitter = 0.18,
 		},
-		Hit = { Id = "rbxasset://sounds/snap.mp3", Bus = "Sfx", Volume = 0.5, Pitch = 1.1 },
+		Hit = {
+			Id = "rbxasset://sounds/hit.wav",
+			Ids = { "rbxasset://sounds/hit.wav", "rbxasset://sounds/snap.mp3" },
+			Bus = "Sfx",
+			Volume = 0.5,
+			Pitch = 1.1,
+			Jitter = 0.12,
+		},
+		Through = { Id = "rbxasset://sounds/action_jump.mp3", Bus = "Sfx", Volume = 0.35, Pitch = 1.7, Jitter = 0.1 },
+		-- The dive's approach drone (spec §4.6 "oh no"): a deep rumble that rises as the target closes.
+		ApproachDrone = {
+			Id = "rbxasset://sounds/action_falling.ogg",
+			Bus = "Sfx",
+			Volume = 0.9,
+			Pitch = 0.3,
+			Loop = true,
+		},
 		RebuildChime = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Sfx", Volume = 0.35, Pitch = 1.4 },
 		ComboTick = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Ui", Volume = 0.4, Pitch = 1.2 },
 		CashIn = { Id = "rbxasset://sounds/volume_slider.ogg", Bus = "Ui", Volume = 0.5, Pitch = 1.8 },
@@ -1130,6 +1257,8 @@ local Tuning = {
 		BusVolume = 0.25,
 		PitchJitter = 0.05,
 		LowPassMidShare = 0.3, -- share of the altitude low-pass applied to mids
+		FalloffStart = 150, -- breaks further than this from the player (others' breaks) fade...
+		FalloffRange = 700, -- ...to silent this much further out
 	},
 
 	Vfx = {
@@ -1282,6 +1411,17 @@ local Tuning = {
 			DiveBlur = 7, -- radial-blur stand-in, Dive only, scaled by speed
 			DiveBlurRef = 350,
 		},
+		-- The fall (review note: the fast-fall feel of the camera closing in should start the moment you begin
+		-- falling and scale up to full). Driven by descent speed in any air state, saturating at Ref: the camera
+		-- pulls in by Zoom studs, the FOV widens by Fov, the blur, shake and rush build.
+		Fall = {
+			Ref = 260,
+			Zoom = 8,
+			Fov = 12,
+			Blur = 6,
+			Shake = 0.7,
+			Rush = 0.6, -- share of the rush loop at full fall
+		},
 		-- The fist glow follows the punch hold: half from the basic charge, half from the tiers beyond it.
 		FistBaseShare = 0.5,
 	},
@@ -1289,9 +1429,46 @@ local Tuning = {
 	-- Character animation (Feel/Anim.luau). Stock Roblox clips for locomotion (R15 first, R6 fallback) plus
 	-- the FALL poses in Tuning.Poses layered onto the joints.
 	Anim = {
-		Response = 16, -- 1/seconds joints ease toward their pose
-		SnapResponse = 50, -- 1/seconds for SnapTime after a state change or punch (spec §4.10: cut in, fade out)
+		-- Joints follow their pose on a damped spring (review note: the animation felt weak): the frequency sets
+		-- how fast, the damping how much they overshoot (1 = none). A state change or punch snaps with the
+		-- faster, bouncier pair for SnapTime (spec §4.10: cut in, fade out).
+		Response = 16, -- kept for the lean and look smoothing (1/seconds)
+		SpringFrequency = 6.5, -- Hz
+		SpringDamping = 0.7,
+		SnapFrequency = 13,
+		SnapDamping = 0.5,
 		SnapTime = 0.15,
+		-- Head look-at: the head (and a share of the waist) turns toward the aim point, by state.
+		LookYawMax = 55, -- degrees
+		LookPitchMax = 40,
+		LookWaistShare = 0.3, -- the waist carries this share of the yaw (R15)
+		LookWeights = { Grounded = 1, Landing = 1, Charging = 1, Hop = 0.9, Hang = 0.6, Glide = 0.45, Swoop = 0.3 },
+		-- Ground lean into acceleration: the body tips forward when you speed up, back when you brake, and into
+		-- turns, by the level acceleration.
+		LeanPerAccel = 0.22, -- degrees per stud/s²
+		LeanMax = 14,
+		LeanSmooth = 7, -- 1/seconds the measured acceleration is smoothed
+		-- Wing life in a glide: a slow flutter plus flex up on climb and down on sink.
+		GlideFlutter = 3.5, -- degrees
+		GlideFlutterHz = 1.4,
+		GlideFlexRef = 90, -- climb (studs/s) for the full GlideFlex pose
+		-- A fast dive tightens the body further and reaches the fist out with speed.
+		DiveSpeedRef = 400,
+		-- Three-point landing (spec §4.8): held through the hitstop and a beat, then rise.
+		ThreePointMinSpeed = 150, -- touchdown speed for the full three-point pose (hop landings just squash)
+		ThreePointHold = 0.35, -- seconds held at full before rising
+		ThreePointTime = 0.8, -- seconds until fully risen
+		-- A hit that doesn't break (a wall, a tower that holds): the body folds back, scaled by effort.
+		RecoilFullSpeed = 400,
+		RecoilTime = 0.45,
+		RecoilMin = 0.3,
+		-- Breaking through: a punch-through snap of the lead fist and shoulders.
+		ThroughTime = 0.3,
+		ThroughFullSpeed = 600,
+		-- Ignition: the arms whip forward then back as the Burst pose takes over.
+		BurstKickTime = 0.22,
+		-- Falling in a hop: arms rise with the fall speed.
+		HopFallRef = 90,
 		Fade = 0.12, -- clip crossfade seconds
 		WalkMinSpeed = 1.5, -- below this the idle clip plays
 		RunSpeed = 12, -- at or above this the run clip plays instead of the walk clip
@@ -1486,10 +1663,83 @@ local Tuning = {
 			RShoulder = { P = -35, S = 20 },
 			Neck = { P = 20 },
 		},
-		-- Hop: knees tucked a little; the stock jump and fall clips do the rest.
+		-- Hop: knees tucked a little; the stock jump and fall clips do the rest. HopFall adds with the fall speed.
 		Hop = {
 			LKnee = { P = -15 },
 			RKnee = { P = -15 },
+		},
+		HopFall = {
+			LShoulder = { P = -20, S = -45 },
+			RShoulder = { P = -20, S = 45 },
+			LElbow = { P = 25 },
+			RElbow = { P = 25 },
+			Neck = { P = 8 },
+		},
+		-- Glide wing flex, added per unit of climb (positive = climbing): wings up on pitch-up, down on sink.
+		GlideFlex = {
+			LShoulder = { S = -16, P = -4 },
+			RShoulder = { S = 16, P = -4 },
+			Neck = { P = 6 },
+		},
+		-- A fast dive: tighter, fist reaching, legs straight, head tucked.
+		DiveSpeed = {
+			RShoulder = { P = 12 },
+			Neck = { P = -8 },
+			LKnee = { P = 5 },
+			RKnee = { P = 5 },
+			Waist = { P = -4 },
+		},
+		-- Ground lean per degree: Root pitch (forward is negative) and side.
+		-- (Applied as a unit pose scaled by the measured lean; the sign comes from the acceleration.)
+		LeanForward = {
+			Root = { P = -1 },
+			Neck = { P = 0.5 },
+		},
+		LeanSide = {
+			Root = { S = 1 },
+		},
+		-- Three-point landing (spec §4.8): fist in the ground, one knee down, the other leg forward, wings mantled,
+		-- head down; kicked on a fast touchdown, held, then eased up into the stance.
+		ThreePoint = {
+			Root = { Up = -1.3, P = -28 },
+			RShoulder = { P = 75, S = 10 },
+			RElbow = { P = 0 },
+			LShoulder = { P = -45, S = -55 },
+			LElbow = { P = 35 },
+			RHip = { P = 25, S = 6 },
+			RKnee = { P = -115 },
+			LHip = { P = 95, S = -8 },
+			LKnee = { P = -95 },
+			Neck = { P = -22 },
+			Waist = { P = -8 },
+		},
+		-- Hit something that held: fold back, arms up, head back.
+		Recoil = {
+			Root = { P = 20, Fwd = -0.45 },
+			LShoulder = { P = 70, S = -35 },
+			RShoulder = { P = 70, S = 35 },
+			LElbow = { P = 40 },
+			RElbow = { P = 40 },
+			LKnee = { P = -45 },
+			RKnee = { P = -45 },
+			LHip = { P = 20 },
+			RHip = { P = 20 },
+			Neck = { P = 12 },
+		},
+		-- Broke through: the lead fist punches on, shoulders twist into it.
+		Through = {
+			Root = { Fwd = 0.35, P = -6 },
+			RShoulder = { P = 15, S = -4 },
+			LShoulder = { P = -20, S = -8 },
+			Waist = { T = 14 },
+			Neck = { P = -8 },
+		},
+		-- Ignition whip: the arms are thrown forward for an instant before the Burst pose pulls them back.
+		BurstKick = {
+			Root = { Up = 0.3 },
+			LShoulder = { P = 60, S = -10 },
+			RShoulder = { P = 60, S = 10 },
+			Neck = { P = -10 },
 		},
 	},
 
@@ -1527,8 +1777,8 @@ local Tuning = {
 		FloatAlpha = 0.85,
 		FloatSizePerDecade = 0.3, -- numbers grow this much per decade of cash above $5, up to FloatMaxGrow
 		FloatMaxGrow = 2,
-		FloatPopTime = 0.15, -- pop in oversized and settle
-		FloatPopScale = 1.6,
+		FloatPopTime = 0.3, -- slam in oversized and settle with a squash (the slam curve)
+		FloatPopScale = 2,
 		FloatSpread = 3, -- studs of random sideways offset so a wave doesn't stack
 		FloatBigCash = 300, -- worth this much or more, the number is white-gold
 		-- Combo banner (UI/ComboBanner.luau): arcade style, top centre. The number pops on every credit, the name
@@ -1538,10 +1788,14 @@ local Tuning = {
 		ComboNumberSize = 64,
 		ComboNameSize = 22,
 		ComboBarWidth = 180,
-		ComboPop = 0.3, -- seconds the number scales back after a tick
-		ComboPopScale = 1.35,
-		ComboTierPop = 0.5,
-		ComboTierPopScale = 1.8,
+		-- Pops run on the slam curve (Feel/Layers): the number lands oversized, squashes under 1 and settles
+		-- (review note: scale up and down more aggressively with an easing function).
+		ComboPop = 0.4, -- seconds the number settles after a tick
+		ComboPopScale = 1.6,
+		ComboTierPop = 0.65,
+		ComboTierPopScale = 2.3,
+		ComboDrop = 26, -- pixels the number slams down from on each tick
+		ComboNamePop = 0.45, -- the name flips in over this when the tier steps up
 		ComboOutTime = 0.7, -- the total flies to the cash readout and fades over this
 		ComboFlyScale = 0.4, -- its size when it lands on the readout
 		ComboTilt = 6, -- degrees the number tilts on each pop (alternating sides)
@@ -1566,6 +1820,9 @@ local Tuning = {
 		ToastBigCash = 300, -- a toast worth this much or more is big
 		ToastBigScale = 1.3,
 		ToastSlotResponse = 14, -- 1/seconds cards ease up the stack
+		ToastPopTime = 0.38, -- a new card slams in on the slam curve...
+		ToastPopScale = 1.6,
+		ToastSlideIn = 22, -- ...from this many pixels below its slot
 		PrefabNames = {
 			Tree = "TREE",
 			Fence = "FENCE",
@@ -1583,9 +1840,9 @@ local Tuning = {
 			Statue = "STATUE",
 			Dome = "DOME",
 		},
-		-- Cash readout pop whenever it counts up.
-		CashPop = 0.35,
-		CashPopScale = 1.25,
+		-- Cash readout pop whenever it counts up (slam curve).
+		CashPop = 0.4,
+		CashPopScale = 1.45,
 		-- Charge rings (punch beside the crosshair, jump above the head): chunky, outlined, mobile-HUD style.
 		RingThickness = 6,
 		RingBorder = 2, -- dark outline on each side of the ring

@@ -1,10 +1,12 @@
 --!strict
 -- Client side of destruction (spec §4.8, §4.12, §15 milestone 4). The server broadcasts each break list with a
 -- wave delay per object (distance / Impact.WaveSpeed); this plays it: hides the prefab locally (invisible and
--- unqueryable, so aim and contact rays pass through the rubble), fires the per-family Break feel at it, and
--- flings pooled chunks copied from the prefab's own parts away from the smash centre. On Rebuilt the prefab
--- snaps back with the rebuild feel. Chunks are client-only parts under the camera, integrated by hand (world
--- gravity is zero): one bounce off the globe, then they fade. Past Chunks.Pool alive, breaks are particles only.
+-- unqueryable, so aim and contact rays pass through the rubble), fires the per-family Break feel at it (pitched
+-- and sized by the prefab's scale, quieter with distance), and flings pooled chunks copied from the prefab's own
+-- parts away from the smash centre. For the last Rebuild.GhostTime before the server's Rebuilt, the prefab fades
+-- back in as a translucent scaffolding ghost rising out of the ground (spec §4.12), then snaps solid with the
+-- rebuild feel. Chunks are client-only parts under the camera, integrated by hand (world gravity is zero): one
+-- bounce off the globe, then they fade. Past Chunks.Pool alive, breaks are particles only.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -17,6 +19,7 @@ local Tuning = require(Shared.Tuning)
 
 local Controller = require(script.Parent.Parent.Movement.Controller)
 local MathUtil = require(script.Parent.Parent.Movement.MathUtil)
+local Damage = require(script.Parent.Damage)
 local Juice = require(script.Parent.Juice)
 local TimeScale = require(script.Parent.TimeScale)
 
@@ -29,19 +32,29 @@ Destruction.Credited = Signal.new() :: Signal.Signal<Vector3, number, number, st
 
 type Break = { Model: Model, Delay: number, Cash: number, Combo: number }
 type Chunk = { Part: Part, Velocity: Vector3, Spin: Vector3, Start: number, Life: number, Color: Color3 }
+type Ghost = { Model: Model, At: number, Pivot: CFrame, Up: Vector3, Parts: { BasePart } }
 
 local FAMILY_EVENT = { wood = "BreakWood", stone = "BreakStone", glass = "BreakGlass", metal = "BreakMetal" }
 
 local chunks: { Chunk } = {}
 local nextChunk = 1
 local folder: Folder
+local ghosts: { [Model]: Ghost } = {}
 
-local function setHidden(model: Model, hidden: boolean)
+local function partsOf(model: Model): { BasePart }
+	local parts: { BasePart } = {}
 	for _, descendant in model:GetDescendants() do
 		if descendant:IsA("BasePart") then
-			descendant.LocalTransparencyModifier = if hidden then 1 else 0
-			descendant.CanQuery = not hidden
+			table.insert(parts, descendant)
 		end
+	end
+	return parts
+end
+
+local function setHidden(model: Model, hidden: boolean)
+	for _, part in partsOf(model) do
+		part.LocalTransparencyModifier = if hidden then 1 else 0
+		part.CanQuery = not hidden
 	end
 end
 
@@ -66,12 +79,7 @@ local function fling(
 	now: number
 )
 	local C = Tuning.Chunks
-	local parts: { BasePart } = {}
-	for _, descendant in model:GetDescendants() do
-		if descendant:IsA("BasePart") then
-			table.insert(parts, descendant)
-		end
-	end
+	local parts = partsOf(model)
 	for index = 1, math.min(entry.Chunks, #parts) do
 		local chunk = freeChunk(now)
 		if not chunk then
@@ -103,6 +111,20 @@ local function fling(
 	end
 end
 
+-- Per-object modifiers for the break feel: bigger prefabs break lower and with more dust; far breaks (other
+-- players) arrive quieter.
+local function breakMods(model: Model, position: Vector3): Juice.Mods
+	local S, A = Tuning.Smash, Tuning.Audio
+	local scale = math.max(model:GetScale(), 1e-3)
+	local volume = 1
+	local ctx = Controller.ctx
+	if ctx then
+		local distance = (ctx.Root.Position - position).Magnitude
+		volume = 1 - math.clamp((distance - A.FalloffStart) / math.max(A.FalloffRange, 1e-3), 0, 1)
+	end
+	return { pitch = scale ^ -S.PitchBySize, volume = volume, size = scale ^ S.CountBySize }
+end
+
 local function breakOne(
 	model: Model,
 	origin: Vector3,
@@ -119,16 +141,19 @@ local function breakOne(
 	if not entry then
 		return
 	end
+	Damage.clear(model) -- back to the undamaged pivot, so chunks and the ghost start straight
+	local pivot = model:GetPivot()
 	setHidden(model, true)
 	Controller.resetDamage(model)
-	local position = model:GetPivot().Position
+	local position = pivot.Position
+	local mods = breakMods(model, position)
 	-- Every family the prefab is made of plays (glass shatters over the stone crumble), big objects add
 	-- BreakBig on top, and a car may pop a moment later (spec §4.12).
 	for _, family in entry.Families do
-		Juice.fire(FAMILY_EVENT[family] or "BreakStone", position, nil, nil, contact)
+		Juice.fire(FAMILY_EVENT[family] or "BreakStone", position, nil, nil, contact, mods)
 	end
 	if entry.Value >= Tuning.Smash.BigBreakValue then
-		Juice.fire("BreakBig", position, nil, nil, contact)
+		Juice.fire("BreakBig", position, nil, nil, contact, mods)
 	end
 	if entry.PopChance and math.random() < entry.PopChance then
 		task.delay(0.5 + math.random() * 0.5, Juice.fire, "CarPop", position)
@@ -136,9 +161,51 @@ local function breakOne(
 	if near then
 		fling(model, entry, origin, radius, contact, os.clock())
 	end
+	-- The scaffolding ghost fades in for the last GhostTime before the server's rebuild (timed from here; the
+	-- Rebuilt broadcast finishes it whenever it lands).
+	local R = Tuning.Rebuild
+	ghosts[model] = {
+		Model = model,
+		At = os.clock() + math.max(R.Delay - R.GhostTime, 0),
+		Pivot = pivot,
+		Up = MathUtil.upAt(position),
+		Parts = partsOf(model),
+	}
 	if cash then
 		local prefab = model:GetAttribute(Destructibles.PrefabAttribute)
 		Destruction.Credited:Fire(position, cash, combo, if type(prefab) == "string" then prefab else "")
+	end
+end
+
+local function rebuildOne(model: Model)
+	local ghost = ghosts[model]
+	ghosts[model] = nil
+	if ghost and model.Parent then
+		model:PivotTo(ghost.Pivot)
+	end
+	setHidden(model, false)
+	Controller.resetDamage(model)
+	Juice.fire("Rebuild", model:GetPivot().Position)
+end
+
+local function updateGhosts(now: number)
+	local R = Tuning.Rebuild
+	for model, ghost in ghosts do
+		if not model.Parent then
+			ghosts[model] = nil
+			continue
+		end
+		if now < ghost.At then
+			continue
+		end
+		local p = math.clamp((now - ghost.At) / math.max(R.GhostTime, 1e-3), 0, 1)
+		local ease = 1 - (1 - p) ^ 2
+		local pulse = R.GhostPulse * (0.5 + 0.5 * math.sin(now * R.GhostPulseHz * 2 * math.pi))
+		local transparency = math.clamp(1 - (1 - R.GhostTransparency) * ease + pulse * ease, 0, 1)
+		for _, part in ghost.Parts do
+			part.LocalTransparencyModifier = transparency
+		end
+		model:PivotTo(ghost.Pivot - ghost.Up * (R.GhostRise * (1 - ease)))
 	end
 end
 
@@ -146,6 +213,7 @@ local function update(dt: number)
 	local C = Tuning.Chunks
 	local now = os.clock()
 	local gravity = Tuning.Gravity.Default
+	updateGhosts(now)
 	dt *= TimeScale.get() -- the impact freeze holds the chunks in the air too
 	for _, chunk in chunks do
 		local age = now - chunk.Start
@@ -219,9 +287,7 @@ function Destruction.start()
 	Net.event("Rebuilt").OnClientEvent:Connect(function(models: { Model })
 		for _, model in models do
 			if model and model.Parent then
-				setHidden(model, false)
-				Controller.resetDamage(model)
-				Juice.fire("Rebuild", model:GetPivot().Position)
+				rebuildOne(model)
 			end
 		end
 	end)

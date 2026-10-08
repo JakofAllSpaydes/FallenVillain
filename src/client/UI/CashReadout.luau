@@ -39,7 +39,7 @@ end
 
 -- An extra pop (1 = the usual), for a combo paying off.
 function CashReadout.pop(strength: number)
-	layers:kick("Pop", strength, Tuning.Ui.CashPop, "spring")
+	layers:kick("Pop", strength, Tuning.Ui.CashPop, "slam")
 end
 
 -- Where the readout sits on screen, for things that fly into it.
@@ -52,14 +52,14 @@ local function update(dt: number)
 	local target = math.max(0, (if type(cash) == "number" then cash else 0) - pending)
 	-- Count up quickly, never down past the target; pop whenever the total climbs.
 	if target > lastTarget + 0.5 then
-		layers:kick("Pop", 1, Tuning.Ui.CashPop, "spring")
+		layers:kick("Pop", 1, Tuning.Ui.CashPop, "slam")
 	end
 	lastTarget = target
 	shown = MathUtil.approach(shown, target, 4 / math.max(Tuning.Ui.CashCountTime, 1e-3), dt)
 	label.Text = "$" .. withCommas(shown)
-	local pop = math.clamp(layers:get("Pop"), 0, 1)
-	scale.Scale = 1 + (Tuning.Ui.CashPopScale - 1) * pop
-	label.TextColor3 = GOLD:Lerp(WHITE, pop)
+	local pop = math.clamp(layers:get("Pop"), -0.4, 1.5) -- the slam squashes below zero
+	scale.Scale = math.max(0.3, 1 + (Tuning.Ui.CashPopScale - 1) * pop)
+	label.TextColor3 = GOLD:Lerp(WHITE, math.clamp(pop, 0, 1))
 end
 
 function CashReadout.start()

@@ -53,6 +53,11 @@ Controller.Bounced = Signal.new() :: Signal.Signal<Vector3, number>
 Controller.Smashed = Signal.new() :: Signal.Signal<Vector3, number, number, Model?, number, number>
 -- (model, position, speed, force, effort) when flying into a destructible without diving: it hits what it touched.
 Controller.HitObject = Signal.new() :: Signal.Signal<Model, Vector3, number, number, number>
+-- (model, position, speed) when a contact is expected to finish the object and you pass through it.
+Controller.BrokeThrough = Signal.new() :: Signal.Signal<Model, Vector3, number>
+-- (model, position, health left 0–1, effort) when a contact damaged an object without finishing it; the health
+-- reveal (Feel/Damage) cracks, leans and shudders it from this.
+Controller.Damaged = Signal.new() :: Signal.Signal<Model, Vector3, number, number>
 
 local persistentPower = 1
 local recentHits: { [Model]: number } = {} -- last contact time per destructible, for Smash.RehitTime
@@ -231,7 +236,8 @@ local function contactDestructible(ctx: Types.Ctx, model: Model, position: Vecto
 	recentHits[model] = ctx.Now
 	local force = contactForce(ctx)
 	local hits = speed / S.SpeedPerHit * force
-	local remaining = healthOf(model) - (predictedDamage[model] or 0)
+	local health = healthOf(model)
+	local remaining = health - (predictedDamage[model] or 0)
 	predictedDamage[model] = (predictedDamage[model] or 0) + hits
 	-- Health decides, with the punch as a force multiplier (review note: a tap punch shouldn't level a tower; it
 	-- has to be gradual with the charge). A tap clears trees and houses; a few seconds of charge opens towers.
@@ -251,6 +257,10 @@ local function contactDestructible(ctx: Types.Ctx, model: Model, position: Vecto
 	end
 	if breaks then
 		ctx.Velocity *= 1 - S.PassLoss * resistance
+		Controller.BrokeThrough:Fire(model, position, speed)
+	else
+		local left = math.clamp((remaining - hits) / math.max(health, 1e-3), 0, 1)
+		Controller.Damaged:Fire(model, position, left, effort)
 	end
 	return breaks
 end
@@ -516,6 +526,8 @@ local function attach(character: Model)
 
 		Input = Input.snapshot(),
 		AimPoint = root.Position,
+		AimTarget = nil,
+		AimMagnet = 0,
 		LookDirection = -Vector3.zAxis,
 		Now = os.clock(),
 

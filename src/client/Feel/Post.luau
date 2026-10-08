@@ -24,6 +24,7 @@ local layers = Layers.new({
 	"Blur",
 	"BlurDrive",
 	"Bloom",
+	"BloomDrive",
 	"SunRays",
 	"Vignette",
 	"Heat",
@@ -89,7 +90,7 @@ local function update()
 	blur.Size = math.max(0, blurSize)
 	blur.Enabled = blurSize > 0.05
 	if bloom then
-		bloom.Intensity = math.max(0, base.Bloom + layers:get("Bloom"))
+		bloom.Intensity = math.max(0, base.Bloom + layers:get("Bloom") + layers:get("BloomDrive"))
 	end
 	if sunRays then
 		sunRays.Intensity = math.max(0, base.SunRays + layers:get("SunRays"))

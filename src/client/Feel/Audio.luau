@@ -53,6 +53,14 @@ function Audio.play(name: string, volume: number?, pitch: number?)
 	poolNext[name] = index % #pool + 1
 	local sound = pool[index]
 	local def = Tuning.Sounds[name]
+	-- A sound set: one of its variations at random (spec §4.12).
+	local ids = def.Ids
+	if ids then
+		local id = ids[math.random(#ids)]
+		if sound.SoundId ~= id then
+			sound.SoundId = id
+		end
+	end
 	local jitter = def.Jitter or Tuning.Audio.PitchJitter
 	sound.PlaybackSpeed = def.Pitch * (pitch or 1) * (1 + (math.random() * 2 - 1) * jitter)
 	sound.Volume = def.Volume * (volume or 1)

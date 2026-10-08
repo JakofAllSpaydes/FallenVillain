@@ -27,7 +27,7 @@ local OUTLINE = Color3.fromRGB(20, 20, 25)
 local BAR_HEIGHT = 4
 local NOTES = 8 -- arpeggio length before the pitch resets
 
-local layers = Layers.new({ "Pop", "TierPop", "Flash", "Tilt" })
+local layers = Layers.new({ "Pop", "TierPop", "Flash", "Tilt", "Drop", "NamePop" })
 local tiltSign = 1
 
 local frame: Frame
@@ -36,6 +36,7 @@ local name: TextLabel
 local bar: Frame
 local track: Frame
 local scale: UIScale
+local nameScale: UIScale
 local strokes: { UIStroke } = {}
 
 local count = 0
@@ -78,16 +79,19 @@ local function onCredited(_position: Vector3, cash: number, combo: number, _pref
 	end
 	pending += cash
 	CashReadout.setPending(pending)
-	layers:kick("Pop", 1, U.ComboPop, "spring")
+	-- The number slams in from above, oversized, squashes and settles (the slam curve), tilting side to side.
+	layers:kick("Pop", 1, U.ComboPop, "slam")
+	layers:kick("Drop", 1, U.ComboPop, "expo")
 	tiltSign = -tiltSign
-	layers:kick("Tilt", tiltSign, U.ComboPop, "spring")
+	layers:kick("Tilt", tiltSign, U.ComboPop, "slam")
 	-- The tick climbs the scale within a tier and an octave per tier (the note index carries both).
 	Juice.fire("ComboTick", nil, nil, nil, (combo - 1) % NOTES + NOTES * tier)
 	local reached = tierFor(count)
 	if reached > tier then
 		tier = reached
-		layers:kick("TierPop", 1, U.ComboTierPop, "spring")
+		layers:kick("TierPop", 1, U.ComboTierPop, "slam")
 		layers:kick("Flash", 1, U.ComboTierPop, "expo")
+		layers:kick("NamePop", 1, U.ComboNamePop, "slam")
 		Juice.fire("ComboTier", nil, nil, nil, reached)
 	end
 end
@@ -120,23 +124,27 @@ local function update()
 	if not frame.Visible then
 		return
 	end
-	local pop = math.clamp(layers:get("Pop"), 0, 1)
-	local tierPop = math.clamp(layers:get("TierPop"), 0, 1)
+	-- Slam pops swing below zero (the squash), so they are clamped from below only by what reads well.
+	local pop = math.clamp(layers:get("Pop"), -0.4, 1)
+	local tierPop = math.clamp(layers:get("TierPop"), -0.3, 1)
 	local flash = math.clamp(layers:get("Flash"), 0, 1)
+	local namePop = math.clamp(layers:get("NamePop"), -0.5, 1)
 	local entry = Tuning.Ui.ComboNames[tier]
 	name.Text = if entry then entry[2] else ""
 	name.TextColor3 = GOLD:Lerp(WHITE, flash)
+	-- The name flips in: squashed flat at the pop, overshooting past full, settling.
+	nameScale.Scale = math.max(0.05, 1 + 0.6 * namePop)
 	number.TextColor3 = WHITE:Lerp(HOT, math.min(tier / #Tuning.Ui.ComboNames, 1)):Lerp(WHITE, flash)
 	if active then
 		number.Text = `×{count}`
-		scale.Scale = 1 + (U.ComboPopScale - 1) * pop + (U.ComboTierPopScale - 1) * tierPop
+		scale.Scale = math.max(0.2, 1 + (U.ComboPopScale - 1) * pop + (U.ComboTierPopScale - 1) * tierPop)
 		frame.Rotation = layers:get("Tilt") * U.ComboTilt
 		local remaining = math.clamp((endsAt - now) / Tuning.Combo.Window, 0, 1)
 		bar.Size = UDim2.new(remaining, 0, 0, BAR_HEIGHT)
 		-- The last second: the bar runs hot and blinks.
 		local warn = endsAt - now < U.ComboWarnTime
 		bar.BackgroundColor3 = if warn and math.sin(now * 20) > 0 then WHITE else (if warn then HOT else GOLD)
-		frame.Position = UDim2.new(0.5, 0, 0, U.ComboTop)
+		frame.Position = UDim2.new(0.5, 0, 0, U.ComboTop - U.ComboDrop * math.clamp(layers:get("Drop"), 0, 1))
 		setAlpha(1)
 	else
 		local q = math.clamp(1 - (outUntil - now) / U.ComboOutTime, 0, 1)
@@ -194,6 +202,8 @@ function ComboBanner.start()
 	name.Size = UDim2.new(1, 0, 0, U.ComboNameSize)
 	name.Parent = frame
 	outlined(name)
+	nameScale = Instance.new("UIScale")
+	nameScale.Parent = name
 
 	track = Instance.new("Frame")
 	track.BackgroundColor3 = OUTLINE

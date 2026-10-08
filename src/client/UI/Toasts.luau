@@ -25,9 +25,16 @@ local FAMILY_COLORS: { [string]: Color3 } = {
 	glass = Color3.fromRGB(170, 215, 240),
 	metal = Color3.fromRGB(150, 160, 180),
 }
-local POP_TIME = 0.25
-local POP_SCALE = 1.3
 local FADE_SHARE = 0.25 -- last share of a card's life spent fading
+local SLAM_CYCLES, SLAM_DECAY = 1.75, 5 -- the Layers slam curve, inlined for per-card timing
+
+-- Lands at 1, squashes below zero, settles (the same shape as the Layers "slam" curve).
+local function slam(p: number): number
+	if p >= 1 then
+		return 0
+	end
+	return math.exp(-SLAM_DECAY * p) * math.cos(2 * math.pi * SLAM_CYCLES * p)
+end
 
 type Card = {
 	Frame: Frame,
@@ -108,16 +115,19 @@ local function update(dt: number)
 			continue
 		end
 		card.Slot = MathUtil.approach(card.Slot, index - 1, U.ToastSlotResponse, dt)
-		local pop = math.clamp(1 - age / POP_TIME, 0, 1)
-		local size = (if card.Big then U.ToastBigScale else 1) * (1 + (POP_SCALE - 1) * pop * pop)
+		-- Slam in: oversized and from below, squash, settle.
+		local p = age / math.max(U.ToastPopTime, 1e-3)
+		local pop = slam(p)
+		local size = (if card.Big then U.ToastBigScale else 1) * math.max(0.2, 1 + (U.ToastPopScale - 1) * pop)
 		card.Scale.Scale = size
+		local slide = U.ToastSlideIn * math.max(0, 1 - p) ^ 2
 		local fade = math.clamp((age - U.ToastTime * (1 - FADE_SHARE)) / (U.ToastTime * FADE_SHARE), 0, 1)
 		local alpha = 1 - fade * fade
 		card.Name.TextTransparency = 1 - alpha
 		card.Cash.TextTransparency = 1 - alpha
 		card.Name.TextStrokeTransparency = 1 - alpha
 		card.Cash.TextStrokeTransparency = 1 - alpha
-		local y = U.ToastBottom + math.max(card.Slot, 0) * (U.ToastHeight + U.ToastGap)
+		local y = U.ToastBottom + math.max(card.Slot, 0) * (U.ToastHeight + U.ToastGap) - slide
 		card.Frame.Position = UDim2.new(0.5, 0, 1, -y)
 	end
 	for index = #active, 1, -1 do
