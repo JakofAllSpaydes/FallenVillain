@@ -439,6 +439,70 @@ local Tuning = {
 		FlashColor = Color3.fromRGB(255, 245, 230),
 	},
 
+	-- Wings (Feel/Wings.luau; spec §1, §4.1–4.9): two procedural demon wings on the local character's back,
+	-- each a fan of three dark panels with a glowing leading edge. Three values per wing follow the state on a
+	-- spring: spread (0 folded, 1 fanned), sweep (0 straight out, 1 back along the body) and flex (degrees of
+	-- elevation added), so they fold on the ground, open with the charge, throw up in a V on ignition, spread
+	-- wide and flutter in a glide, snap shut for a dive and crack open on a swoop. The edge glows with the
+	-- charge and the dive heat. Wingtip trails hang from the outer panels.
+	Wings = {
+		Scale = 1.15, -- overall size relative to the panel lengths below
+		PanelLengths = { 4.2, 5.6, 4.6 },
+		PanelDepths = { 1.4, 1.9, 1.6 },
+		PanelThickness = 0.12,
+		FanElevations = { 38, 12, -14 }, -- degrees from horizontal when fully spread, per panel
+		FoldElevation = 78, -- all panels this steep when folded
+		FoldSweep = 70, -- degrees back along the body when fully swept
+		PivotOffset = Vector3.new(0.55, 0.45, 0.55), -- from the torso centre (x mirrored per wing, z behind)
+		Color = Color3.fromRGB(36, 30, 34),
+		EdgeColor = Color3.fromRGB(255, 200, 120),
+		EdgeHeatColor = Color3.fromRGB(255, 130, 50),
+		EdgeMaxGlow = 0.9, -- edge strip opacity at full glow
+		SpringFrequency = 5, -- Hz the wing values follow their targets
+		SpringDamping = 0.6,
+		SnapFrequency = 12, -- the pair used for SnapTime after a state change (dive tuck, swoop crack)
+		SnapDamping = 0.45,
+		SnapTime = 0.18,
+		FlexByClimb = 22, -- degrees of flex per unit of climb / GlideFlexRef (up on climb, down on sink)
+		FlexByBank = 0.35, -- degrees per degree of bank, outer wing up
+		Flutter = 3, -- degrees of slow flutter in a glide
+		FlutterHz = 1.4,
+		StrainShake = 4, -- degrees of shake when glide energy is under the strain threshold
+		StrainHz = 14,
+		BurstGlowTime = 0.6, -- the edge flashes to full on ignition and fades over this
+		-- Per-state targets { spread, sweep, flex }.
+		Poses = {
+			Grounded = { 0.1, 0.9, 0 },
+			Landing = { 0.15, 0.85, 0 },
+			Charging = { 0.25, 0.75, 10 },
+			Slide = { 0.5, 0.6, 15 },
+			Hop = { 0.55, 0.3, 10 },
+			Burst = { 0.6, 0.2, 45 },
+			BurstLate = { 1, 0.1, 15 }, -- the last ApexSpread seconds before the apex: wings slowly spread wide
+			Hang = { 1, 0.1, 10 },
+			Glide = { 1, 0.1, 0 },
+			Dive = { 0, 1, -10 },
+			Swoop = { 1, 0, 35 },
+		},
+		ApexSpread = 0.8, -- seconds before the apex the spread begins (spec §4.3 deceleration cue)
+		ChargeSpread = 0.4, -- extra spread at a full Burst charge while Charging
+	},
+
+	-- Pulses (Feel/Pulse.luau; spec §4.1, §4.3, §4.6): a beat timer whose rate and strength follow the moment.
+	-- Charging: the §4.1 sub-bass pulse, every 0.5 s tightening toward 0.2 s with the hold. Burst: a slow
+	-- heartbeat from BurstShare of the ascent. Falling: a heartbeat that quickens and loudens with speed from
+	-- Drive.Speed.HeatStart, whose vignette kick is the §4.6 screen pulse. Each beat fires a FeelTable event
+	-- (ChargePulse, Heartbeat) with its strength as the event's speed.
+	Pulse = {
+		ChargeBpmMin = 120,
+		ChargeBpmMax = 300,
+		BurstShare = 0.7,
+		BurstBpm = 50,
+		FallBpmMin = 60,
+		FallBpmMax = 170,
+		FallRange = 400, -- speed above HeatStart for the fastest, loudest beat
+	},
+
 	-- Smash preview and aim magnet (spec §4.6): a ring on the ground at the aim point sized to the smash radius
 	-- at the current speed, brighter over a destructible; the aim point eases toward the nearest destructible
 	-- within Aim.MagnetRadius; and the "oh no" approach when a dive is ApproachTime from its target.
@@ -485,7 +549,11 @@ local Tuning = {
 	},
 
 	Rebuild = {
-		Delay = 75, -- seconds after a break before the prefab snaps back (spec §4.12)
+		-- Clusters rebuild together (spec §4.12): a section (a town, hamlet, forest, grove, landmark) comes back
+		-- Delay seconds after its *last* break, all at once, so a town you demolish over a minute returns whole;
+		-- loose scatter rebuilds per object. A section under constant attack still returns after MaxWait.
+		Delay = 75,
+		MaxWait = 240,
 		-- Scaffolding ghost (spec §4.12): the broken prefab fades back in translucent and rising out of the ground
 		-- for the last GhostTime before the snap, so you see the town coming back and know to go up again.
 		GhostTime = 5,
@@ -729,8 +797,52 @@ local Tuning = {
 		Landing = join({ { loop = "Wind", to = 0.15, dur = 0.6 } }, TOUCHDOWN),
 		Slide = join({ { loop = "Wind", to = 0.5, dur = 0.3 }, { spawn = "Dust", count = 12 } }, TOUCHDOWN),
 		-- §4.9: a small dust puff and a light whoosh on takeoff; the squash and stretch are in the animation.
-		Hop = { { sound = "Hop" }, { loop = "Wind", to = 0.25, dur = 0.3 }, { spawn = "Dust", count = 6 } },
-		Glide = { { loop = "Wind", to = 0.4, dur = 0.5 } },
+		Hop = { { loop = "Wind", to = 0.25, dur = 0.3 }, { spawn = "Dust", count = 6 } },
+		-- The hop's sound, fired with the chain count as its speed: chain hops climb a scale (spec §4.9).
+		HopNote = {
+			{ sound = "Hop", pitchSteps = { 0, 2, 4, 5, 7, 9, 11, 12 } },
+			{ cam = "fovOffset", kick = 1.5, dur = 0.2, curve = "spring", minSpeed = 1 },
+		},
+		Glide = { { loop = "Wind", to = 0.4, dur = 0.5 }, { loop = "Creak", to = 0, dur = 0 } },
+		-- Glide energy ran out (spec §4.5): a forced tuck with a snap and a short cry.
+		DiveForced = {
+			{ sound = "Cry" },
+			{ sound = "WingSnap", volume = 1.6 },
+			{ cam = "tilt", kick = -6, dur = 0.4, curve = "spring" },
+			{ cam = "fovOffset", kick = 6, dur = 0.3, curve = "expo" },
+			{ haptic = "Rumble", kick = 0.5, dur = 0.2, curve = "expo" },
+			{ post = "Vignette", kick = 0.4, dur = 0.5 },
+		},
+		-- §4.1 and §4.6 pulses (Feel/Pulse.luau), by strength: a sub-bass thump with a vignette squeeze and a
+		-- haptic tap while charging; a two-beat heart with the screen pulsing on the beat in the fall.
+		ChargePulse = {
+			{ sound = "ChargePulse", volume = 1, bySpeed = true, minSpeed = 0, fullSpeed = 1 },
+			{ post = "Vignette", kick = 0.12, dur = 0.25, curve = "expo", bySpeed = true, minSpeed = 0, fullSpeed = 1 },
+			{ haptic = "Rumble", kick = 0.2, dur = 0.08, curve = "expo", bySpeed = true, minSpeed = 0, fullSpeed = 1 },
+		},
+		Heartbeat = {
+			{ sound = "Heartbeat", volume = 1, bySpeed = true, minSpeed = 0, fullSpeed = 1 },
+			{
+				sound = "Heartbeat",
+				volume = 0.6,
+				pitch = 0.9,
+				delay = 0.14,
+				bySpeed = true,
+				minSpeed = 0,
+				fullSpeed = 1,
+			},
+			{
+				post = "Vignette",
+				kick = 0.25,
+				dur = 0.3,
+				curve = "expo",
+				bySpeed = true,
+				minSpeed = 0.3,
+				fullSpeed = 1,
+			},
+			{ post = "Heat", kick = 0.3, dur = 0.3, curve = "expo", bySpeed = true, minSpeed = 0.5, fullSpeed = 1 },
+			{ haptic = "Rumble", kick = 0.3, dur = 0.1, curve = "expo", bySpeed = true, minSpeed = 0.2, fullSpeed = 1 },
+		},
 		-- §4.6: the wings snap shut; speed does the rest through Tuning.Drive (FOV, shake, rush, lines, heat).
 		Dive = {
 			{ loop = "Wind", to = 0.85, dur = 0.3 },
@@ -1107,12 +1219,14 @@ local Tuning = {
 				fullSpeed = 1000,
 			},
 		},
-		-- A prefab snapping back after its ghost (spec §4.12): a chime, a pop of light and a puff.
+		-- A cluster snapping back after its ghosts (spec §4.12): once per batch at its centre, a rising two-note
+		-- chime and a pop of light; RebuildOne is each prefab's own puff.
 		Rebuild = {
 			{ sound = "RebuildChime" },
-			{ spawn = "Flash3D", size = 8, lift = 4, dur = 0.3 },
-			{ spawn = "Dust", count = 10 },
+			{ sound = "RebuildChime", pitch = 1.25, delay = 0.12 },
+			{ spawn = "Flash3D", size = 10, lift = 4, dur = 0.35 },
 		},
+		RebuildOne = { { spawn = "Dust", count = 8 } },
 		-- Combo counter tick: a short rising arpeggio, one note per hit, resetting every 8 (the event's speed is the
 		-- note index 0–7, so pitchBySpeed steps the pitch).
 		-- The combo tick climbs a pentatonic scale (pitchSteps, in semitones, indexed by the event's speed) and the
@@ -1240,6 +1354,11 @@ local Tuning = {
 			Jitter = 0.12,
 		},
 		Through = { Id = "rbxasset://sounds/action_jump.mp3", Bus = "Sfx", Volume = 0.35, Pitch = 1.7, Jitter = 0.1 },
+		-- Pulses: a bass thump for the heart and the charge; the wings' strain creak loops; the forced-dive cry.
+		Heartbeat = { Id = "rbxasset://sounds/bass.wav", Bus = "Sfx", Volume = 0.55, Pitch = 0.9, Jitter = 0.03 },
+		ChargePulse = { Id = "rbxasset://sounds/bass.wav", Bus = "Sfx", Volume = 0.45, Pitch = 0.6, Jitter = 0.03 },
+		Creak = { Id = "rbxasset://sounds/action_get_up.mp3", Bus = "Sfx", Volume = 0.3, Pitch = 0.45, Loop = true },
+		Cry = { Id = "rbxasset://sounds/uuhhh.mp3", Bus = "Sfx", Volume = 0.5, Pitch = 1, Jitter = 0.08 },
 		-- The dive's approach drone (spec §4.6 "oh no"): a deep rumble that rises as the target closes.
 		ApproachDrone = {
 			Id = "rbxasset://sounds/action_falling.ogg",
@@ -1853,6 +1972,15 @@ local Tuning = {
 		PunchWheelOffset = 80, -- pixels right of and below the crosshair
 		JumpWheelSize = 130,
 		JumpWheelHeight = 5, -- studs above the root
+		-- The RELEASE hint (spec §4.1): fades in over the jump wheel after this long a Charging hold, for the
+		-- first few Bursts of the session only.
+		ReleaseHintAfter = 1.5,
+		ReleaseHintBursts = 3,
+		ReleaseHintHeight = 7.2, -- studs above the root
+		ReleaseHintSize = 26,
+		-- Other players' rim light (spec §4.3): an outline Highlight so people on the ground watch you go.
+		RemoteOutline = Color3.fromRGB(255, 236, 200),
+		RemoteOutlineTransparency = 0.35,
 	},
 
 	Dev = {

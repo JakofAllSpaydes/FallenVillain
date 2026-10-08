@@ -3,10 +3,11 @@
 -- wave delay per object (distance / Impact.WaveSpeed); this plays it: hides the prefab locally (invisible and
 -- unqueryable, so aim and contact rays pass through the rubble), fires the per-family Break feel at it (pitched
 -- and sized by the prefab's scale, quieter with distance), and flings pooled chunks copied from the prefab's own
--- parts away from the smash centre. For the last Rebuild.GhostTime before the server's Rebuilt, the prefab fades
--- back in as a translucent scaffolding ghost rising out of the ground (spec §4.12), then snaps solid with the
--- rebuild feel. Chunks are client-only parts under the camera, integrated by hand (world gravity is zero): one
--- bounce off the globe, then they fade. Past Chunks.Pool alive, breaks are particles only.
+-- parts away from the smash centre. When the server broadcasts Ghosting (Rebuild.GhostTime before a cluster's
+-- Rebuilt), each prefab fades back in as a translucent scaffolding ghost rising out of the ground (spec §4.12);
+-- Rebuilt snaps the cluster solid with one rebuild chime at its centre and a puff per prefab. Chunks are
+-- client-only parts under the camera, integrated by hand (world gravity is zero): one bounce off the globe,
+-- then they fade. Past Chunks.Pool alive, breaks are particles only.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -40,6 +41,7 @@ local chunks: { Chunk } = {}
 local nextChunk = 1
 local folder: Folder
 local ghosts: { [Model]: Ghost } = {}
+local hidden: { [Model]: boolean } = {} -- prefabs this client has hidden (so a ghost never fades an intact one)
 
 local function partsOf(model: Model): { BasePart }
 	local parts: { BasePart } = {}
@@ -144,6 +146,7 @@ local function breakOne(
 	Damage.clear(model) -- back to the undamaged pivot, so chunks and the ghost start straight
 	local pivot = model:GetPivot()
 	setHidden(model, true)
+	hidden[model] = true
 	Controller.resetDamage(model)
 	local position = pivot.Position
 	local mods = breakMods(model, position)
@@ -161,20 +164,25 @@ local function breakOne(
 	if near then
 		fling(model, entry, origin, radius, contact, os.clock())
 	end
-	-- The scaffolding ghost fades in for the last GhostTime before the server's rebuild (timed from here; the
-	-- Rebuilt broadcast finishes it whenever it lands).
-	local R = Tuning.Rebuild
-	ghosts[model] = {
-		Model = model,
-		At = os.clock() + math.max(R.Delay - R.GhostTime, 0),
-		Pivot = pivot,
-		Up = MathUtil.upAt(position),
-		Parts = partsOf(model),
-	}
 	if cash then
 		local prefab = model:GetAttribute(Destructibles.PrefabAttribute)
 		Destruction.Credited:Fire(position, cash, combo, if type(prefab) == "string" then prefab else "")
 	end
+end
+
+-- The server says this cluster is about to come back: start its ghosts (only for prefabs hidden here).
+local function ghostOne(model: Model, now: number)
+	if not hidden[model] or not model.Parent then
+		return
+	end
+	local pivot = model:GetPivot()
+	ghosts[model] = {
+		Model = model,
+		At = now,
+		Pivot = pivot,
+		Up = MathUtil.upAt(pivot.Position),
+		Parts = partsOf(model),
+	}
 end
 
 local function rebuildOne(model: Model)
@@ -184,8 +192,9 @@ local function rebuildOne(model: Model)
 		model:PivotTo(ghost.Pivot)
 	end
 	setHidden(model, false)
+	hidden[model] = nil
 	Controller.resetDamage(model)
-	Juice.fire("Rebuild", model:GetPivot().Position)
+	Juice.fire("RebuildOne", model:GetPivot().Position)
 end
 
 local function updateGhosts(now: number)
@@ -284,11 +293,27 @@ function Destruction.start()
 			end
 		end)
 
+	Net.event("Ghosting").OnClientEvent:Connect(function(models: { Model })
+		local now = os.clock()
+		for _, model in models do
+			if model then
+				ghostOne(model, now)
+			end
+		end
+	end)
+
 	Net.event("Rebuilt").OnClientEvent:Connect(function(models: { Model })
+		-- One chime for the cluster, at its centre; a puff per prefab.
+		local sum, count = Vector3.zero, 0
 		for _, model in models do
 			if model and model.Parent then
+				sum += model:GetPivot().Position
+				count += 1
 				rebuildOne(model)
 			end
+		end
+		if count > 0 then
+			Juice.fire("Rebuild", sum / count)
 		end
 	end)
 

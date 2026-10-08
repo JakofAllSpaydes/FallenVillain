@@ -211,6 +211,13 @@ function Juice.start()
 		local speed = if type(payload) == "table" then payload.Speed else nil
 		Juice.fire(`Exit{from}`)
 		Juice.fire(to, nil, to, nil, speed)
+		local ctx = Controller.ctx
+		if to == "Hop" and ctx then
+			-- The hop's note climbs with the chain (spec §4.9).
+			Juice.fire("HopNote", nil, nil, nil, ctx.HopChain)
+		elseif to == "Dive" and type(payload) == "table" and payload.Forced then
+			Juice.fire("DiveForced")
+		end
 	end)
 	Punch.Fired:Connect(function(kind, held, position)
 		Juice.fire(kind, position, nil, held)
@@ -233,13 +240,17 @@ function Juice.start()
 	-- A ground smash's impact frame already plays through the Landing/Slide touchdown; only structures fire here.
 	-- Structure smashes and hits play by effort (speed scaled by how much the object resisted), so cutting
 	-- through a cluster of trees at speed barely registers while a tower still hits like a tower.
+	-- Hits are pitched by the size of what you hit, like breaks.
+	local function sizeMods(model: Model): Mods
+		return { pitch = math.max(model:GetScale(), 1e-3) ^ -Tuning.Smash.PitchBySize }
+	end
 	Controller.Smashed:Connect(function(position, _speed, _radius, direct, _force, effort)
 		if direct then
-			Juice.fire("Smash", position, nil, nil, effort)
+			Juice.fire("Smash", position, nil, nil, effort, sizeMods(direct))
 		end
 	end)
-	Controller.HitObject:Connect(function(_model, position, _speed, _force, effort)
-		Juice.fire("Hit", position, nil, nil, effort)
+	Controller.HitObject:Connect(function(model, position, _speed, _force, effort)
+		Juice.fire("Hit", position, nil, nil, effort, sizeMods(model))
 	end)
 	-- Breaking through plays by the speed you carried through it, not by effort (that is what the hit is for).
 	Controller.BrokeThrough:Connect(function(_model, position, speed)

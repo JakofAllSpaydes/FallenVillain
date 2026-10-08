@@ -6,7 +6,12 @@
 -- against the replicated character, applies damage in hits (speed / Smash.SpeedPerHit × force, falling off to
 -- the radius edge; the object touched takes the full hit, and a punch finishes it outright), and broadcasts
 -- each contact's break list with the wave delay per object, so every client plays the same radial destruction
--- wave. Health and value scale with the prefab's size. Rebuilds are broadcast the same way.
+-- wave. Health and value scale with the prefab's size.
+--
+-- Rebuilds are per cluster (spec §4.12): a section folder (a town, hamlet, forest, grove, landmark) comes back
+-- Rebuild.Delay after its last break, all at once (a section under constant attack still returns after
+-- Rebuild.MaxWait); loose scatter rebuilds per object. Rebuild.GhostTime before the snap the server broadcasts
+-- Ghosting(models) so every client fades the scaffolding ghosts in, then Rebuilt(models).
 --
 -- The attack force (a dive, a punch) comes from the client and is only clamped (Smash.MaxForceMult); proper
 -- validation of it is part of the anti-exploit pass. The client predicts break-through for its own movement;
@@ -31,16 +36,20 @@ type Object = {
 	Scale: number,
 	Health: number,
 	Broken: boolean,
-	Generation: number,
 }
 export type Break = { Model: Model, Delay: number, Cash: number, Combo: number }
 type Budget = { Tokens: number, At: number }
+-- A cluster's pending rebuild: the objects broken since its last rebuild, when the first of them fell, and a
+-- generation that a later break bumps to push the timer back.
+type Section = { Broken: { Object }, FirstBreak: number, Generation: number, Pending: boolean }
 
 local objects: { [Model]: Object } = {}
 local budgets: { [Player]: Budget } = {}
+local sections: { [Instance]: Section } = {}
 local overlap = OverlapParams.new()
 
 local brokenEvent: RemoteEvent
+local ghostingEvent: RemoteEvent
 local rebuiltEvent: RemoteEvent
 
 local function fullHealth(entry: Destructibles.Entry, scale: number): number
@@ -60,7 +69,6 @@ local function register(model: Model)
 		Scale = scale,
 		Health = fullHealth(entry, scale),
 		Broken = false,
-		Generation = 0,
 	}
 end
 
@@ -88,15 +96,65 @@ local function payout(player: Player, object: Object, fallPeak: number, now: num
 	return cash, data.Combo
 end
 
-local function scheduleRebuild(object: Object)
-	local generation = object.Generation
-	task.delay(Tuning.Rebuild.Delay, function()
-		if object.Generation ~= generation or not object.Broken or not object.Model.Parent then
-			return
+-- The cluster an object rebuilds with: its section folder, or itself for loose scatter.
+local function sectionKey(model: Model): Instance
+	local parent = model.Parent
+	local root = Destructibles.folder()
+	if parent and parent ~= root and parent.Name ~= "Scatter" then
+		return parent
+	end
+	return model
+end
+
+-- Ghosts, then rebuilds, this batch of a cluster's objects.
+local function rebuildBatch(batch: { Object })
+	local models: { Model } = {}
+	for _, object in batch do
+		if object.Model.Parent then
+			table.insert(models, object.Model)
 		end
-		object.Broken = false
-		object.Health = fullHealth(object.Entry, object.Scale)
-		rebuiltEvent:FireAllClients({ object.Model })
+	end
+	if #models > 0 then
+		ghostingEvent:FireAllClients(models)
+	end
+	task.delay(Tuning.Rebuild.GhostTime, function()
+		for _, object in batch do
+			object.Broken = false
+			object.Health = fullHealth(object.Entry, object.Scale)
+		end
+		if #models > 0 then
+			rebuiltEvent:FireAllClients(models)
+		end
+	end)
+end
+
+-- A break joins its cluster's pending rebuild and pushes the timer back to Rebuild.Delay from now, unless the
+-- cluster has been under attack since before MaxWait - Delay ago, in which case the running timer stands.
+local function scheduleRebuild(object: Object, now: number)
+	local R = Tuning.Rebuild
+	local key = sectionKey(object.Model)
+	local existing = sections[key]
+	local item: Section
+	if existing and existing.Pending then
+		item = existing
+	else
+		item = { Broken = {}, FirstBreak = now, Generation = 0, Pending = true }
+		sections[key] = item
+	end
+	table.insert(item.Broken, object)
+	if item.Generation > 0 and now - item.FirstBreak >= R.MaxWait - R.Delay then
+		return -- the standing timer rebuilds everything broken so far
+	end
+	item.Generation += 1
+	local generation = item.Generation
+	task.delay(math.max(R.Delay - R.GhostTime, 0), function()
+		if item.Generation ~= generation then
+			return -- a later break pushed the timer back
+		end
+		item.Pending = false
+		local batch = item.Broken
+		item.Broken = {}
+		rebuildBatch(batch)
 	end)
 end
 
@@ -142,7 +200,6 @@ local function damageRadius(
 		object.Health -= hits * (if model == direct then 1 else falloff)
 		if object.Health <= 0 then
 			object.Broken = true
-			object.Generation += 1
 			local cash, combo = payout(player, object, fallPeak, now)
 			table.insert(breaks, {
 				Model = model,
@@ -150,7 +207,7 @@ local function damageRadius(
 				Cash = cash,
 				Combo = combo,
 			})
-			scheduleRebuild(object)
+			scheduleRebuild(object, now)
 		end
 	end
 	table.sort(breaks, function(a, b)
@@ -246,6 +303,7 @@ end
 function DestructionAuthority.start()
 	PlayerData.start()
 	brokenEvent = Net.event("Broken")
+	ghostingEvent = Net.event("Ghosting")
 	rebuiltEvent = Net.event("Rebuilt")
 	overlap.FilterType = Enum.RaycastFilterType.Include
 	overlap.MaxParts = Tuning.Net.MaxOverlapParts
@@ -263,6 +321,7 @@ function DestructionAuthority.start()
 	CollectionService:GetInstanceRemovedSignal(Destructibles.Tag):Connect(function(instance)
 		if instance:IsA("Model") then
 			objects[instance] = nil
+			sections[instance] = nil
 		end
 	end)
 

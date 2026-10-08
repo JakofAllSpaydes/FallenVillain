@@ -51,6 +51,7 @@ local function clear()
 	CameraEffects.drive("distanceDrive", 0)
 	CameraEffects.drive("shakeDrive", 0)
 	Audio.drive("Rush", 0, 0)
+	Audio.drive("Creak", 0, 0)
 	Post.drive("Heat", 0)
 	Post.drive("Tint", 0)
 	Post.drive("BlurDrive", 0)
@@ -150,6 +151,12 @@ local function update(dt: number)
 	CameraEffects.drive("distanceDrive", -zoom - F.Zoom * fall)
 	CameraEffects.drive("shakeDrive", S.Shake * saturate(over, S.ShakeRef) + F.Shake * fall, S.ShakeFreq)
 	Audio.drive("Rush", rush, S.RushPitch * rush)
+	-- Glide energy running low: the wings creak (spec §4.5); Feel/Wings shakes them from the same number.
+	local E = Tuning.GlideEnergy
+	local strain = if ctx.State == "Glide" and ctx.GlideEnergy < E.StrainThreshold
+		then 1 - ctx.GlideEnergy / math.max(E.StrainThreshold, 1e-3)
+		else 0
+	Audio.drive("Creak", strain, 0)
 	Post.drive("Heat", S.Heat * heat)
 	Post.drive("Tint", S.Tint * heat)
 	Post.drive("BlurDrive", blur)
