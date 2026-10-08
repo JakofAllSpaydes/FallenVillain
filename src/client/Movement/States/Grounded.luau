@@ -9,6 +9,7 @@ local Types = require(Shared.Types)
 local GroundHold = require(script.Parent.Parent.GroundHold)
 local JumpCheck = require(script.Parent.Parent.JumpCheck)
 local Punch = require(script.Parent.Parent.Punch)
+local Blast = require(script.Parent.Parent.Blast)
 
 local Grounded = { OnGround = true, NoBounce = true, Punch = "Ground" }
 
@@ -22,7 +23,7 @@ function Grounded.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any
 	if jump then
 		return jump, payload
 	end
-	local walk = Punch.slow(ctx, Tuning.Punch.ChargeWalkMult)
+	local walk = Punch.slow(ctx, Tuning.Punch.ChargeWalkMult) * Blast.slow(ctx, Tuning.Blast.ChargeWalkMult)
 	if not GroundHold.step(ctx, dt, Tuning.Walk.Response, walk) then
 		return "Hop", { Launch = true }
 	end

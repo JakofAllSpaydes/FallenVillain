@@ -45,7 +45,7 @@ function RemotePlayers.start()
 	Controller.StateChanged:Connect(function(_from, to, _payload)
 		local ctx = Controller.ctx
 		if to == "Burst" and ctx then
-			burstStarted:FireServer(ctx.Power, ctx.Root.Position)
+			burstStarted:FireServer(ctx.Level, ctx.Root.Position)
 		end
 	end)
 

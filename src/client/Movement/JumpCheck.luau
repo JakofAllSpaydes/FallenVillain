@@ -11,6 +11,7 @@
 -- The hop keeps the press time, so a chain hop is judged by when you pressed (a pre-held landing counts).
 
 local Shared = game:GetService("ReplicatedStorage").Shared
+local Progression = require(Shared.Progression)
 local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
 local Signal = require(Shared.Signal)
@@ -48,7 +49,9 @@ function JumpCheck.track(ctx: Types.Ctx, dt: number, onGround: boolean)
 			airHeld += charge
 		end
 		local after = JumpCheck.held() or 0
-		if MathUtil.tier(Tuning.Burst.Tiers, after) > MathUtil.tier(Tuning.Burst.Tiers, before) then
+		local tier = MathUtil.tier(Tuning.Burst.Tiers, after)
+		-- Tier chimes only for circles the level has unlocked (shared/Progression.luau).
+		if tier > MathUtil.tier(Tuning.Burst.Tiers, before) and tier <= Progression.circles(ctx.Level) - 1 then
 			JumpCheck.TierReached:Fire(after)
 		end
 	elseif not onGround then

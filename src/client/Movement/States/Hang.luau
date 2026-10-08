@@ -12,6 +12,7 @@ local Hang = { Punch = "Air" }
 
 function Hang.enter(ctx: Types.Ctx, _payload: any)
 	ctx.GlideEnergy = Tuning.GlideEnergy.Max
+	ctx.ApexAt = ctx.Now
 	ctx.FallPeak = ctx.Altitude
 	ctx.BodyDirection = nil
 	ctx.Bank = 0

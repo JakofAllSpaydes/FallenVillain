@@ -21,6 +21,8 @@ export type InputSnapshot = {
 	PrimaryPressed: boolean,
 	PrimaryReleased: boolean,
 	SecondaryHeld: boolean,
+	SecondaryPressed: boolean,
+	SecondaryReleased: boolean,
 	Move: Vector3, -- ControlModule move vector: x right, z back (W = -1)
 }
 
@@ -56,14 +58,18 @@ export type Ctx = {
 	BurstHeld: number, -- seconds Space was held for the last Burst
 	BurstAscentTime: number, -- seconds from ignition to apex of the last Burst
 	HopChain: number,
+	ApexAt: number, -- when the last Burst apex (Hang) was reached; the glide drops hard for a while after it
 	LastLandTime: number,
 	LandVelocity: Vector3, -- level velocity at the last touchdown; chain hops keep it
 	SwoopReadyAt: number,
 	FallPeak: number, -- highest altitude this fall; caps air gain
-	Power: number, -- upgrade level 1–25; sets Burst velocity
+	Level: number, -- progression level (shared/Progression.luau): power multiplier and unlocked circles
 	PunchHold: number?, -- seconds LMB has been held, nil when not charging a punch
 	PunchReadyAt: number,
 	PunchFiredAt: number, -- when the last punch fired; a contact soon after counts as attacking (Smash.PunchWindow)
+	BlastHold: number?, -- seconds RMB has been held, nil when not charging a blast
+	BlastReadyAt: number,
+	BeamUntil: number, -- the beam fires until this time (0 = not firing)
 	LookFollowAfter: number, -- Glide and Swoop don't turn toward the camera look until this time (after a bounce)
 	TimeScale: number, -- hitstop and slow-mo multiplier on dt this frame
 }

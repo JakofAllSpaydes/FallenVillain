@@ -4,7 +4,7 @@
 --   * Left of the screen (Input.Touch.StickZone): a dynamic thumbstick that appears where the thumb lands. Move.
 --   * Anywhere else: drag to look, the same yaw and pitch the mouse drives (Camera.TouchSensitivity).
 --   * Bottom-right: JUMP (everything Space does: tap hops, hold charges a Burst, in the air dives, release
---     swoops) and PUNCH (everything LMB does) buttons.
+--     swoops), PUNCH (everything LMB does) and BLAST (everything RMB does) buttons.
 -- Every touch is tracked on its own InputObject, so the stick, the look drag and both buttons work at once.
 -- Roblox's own TouchGui is hidden if it ever appears; the controller owns movement.
 
@@ -155,6 +155,7 @@ function TouchControls.start()
 	round(knob, 0.2)
 
 	button(gui, "PUNCH", T.PunchButton, Input.setTouchPrimary)
+	button(gui, "BLAST", T.BlastButton, Input.setTouchSecondary)
 	button(gui, "JUMP", T.JumpButton, Input.setTouchJump)
 
 	gui.Parent = playerGui

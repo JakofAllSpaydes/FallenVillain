@@ -26,9 +26,9 @@ local lastPing = -math.huge
 local comboAlive: RemoteEvent
 
 export type Contact = {
-	Kind: "Smash" | "Hit",
+	Kind: "Smash" | "Hit" | "Blast",
 	Position: Vector3,
-	Speed: number,
+	Speed: number, -- the contact speed, or a blast's strength in the same units
 	FallPeak: number,
 	Force: number,
 	Model: Model?, -- the object touched (always set for a Hit; a ground Smash has none)
@@ -39,6 +39,21 @@ local pending: { Contact } = {}
 local function queue(contact: Contact)
 	if #pending < Tuning.Net.MaxContactsPerBatch then
 		table.insert(pending, contact)
+	end
+end
+
+-- A shot landing or a beam tick (Combat/Blaster): a smash at `position` with `strength` standing in for speed.
+function Smash.queueBlast(position: Vector3, strength: number, model: Model?)
+	local ctx = Controller.ctx
+	if ctx then
+		queue({
+			Kind = "Blast",
+			Position = position,
+			Speed = strength,
+			FallPeak = ctx.FallPeak,
+			Force = 1,
+			Model = model,
+		})
 	end
 end
 

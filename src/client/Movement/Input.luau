@@ -1,5 +1,5 @@
 --!strict
--- Collects the four inputs (space, hold space, left, right) plus move and aim into a per-frame snapshot.
+-- Collects the inputs (space, left, right) plus move and aim into a per-frame snapshot.
 -- Edge flags (Pressed/Released) accumulate between snapshots so a tap shorter than a frame is never lost.
 
 local UserInputService = game:GetService("UserInputService")
@@ -16,7 +16,7 @@ local SECONDARY_INPUTS = { [Enum.UserInputType.MouseButton2] = true, [Enum.KeyCo
 
 local jumpHeld, jumpPressed, jumpReleased = false, false, false
 local primaryHeld, primaryPressed, primaryReleased = false, false, false
-local secondaryHeld = false
+local secondaryHeld, secondaryPressed, secondaryReleased = false, false, false
 -- Fed by Movement/TouchControls.luau on touch devices; zero otherwise.
 local touchMove = Vector3.zero
 local touchLook = Vector2.zero
@@ -70,7 +70,7 @@ local function onBegan(input: InputObject, processed: boolean)
 	elseif matches(PRIMARY_INPUTS, input) then
 		primaryHeld, primaryPressed = true, true
 	elseif matches(SECONDARY_INPUTS, input) then
-		secondaryHeld = true
+		secondaryHeld, secondaryPressed = true, true
 	end
 end
 
@@ -79,8 +79,8 @@ local function onEnded(input: InputObject)
 		jumpHeld, jumpReleased = false, true
 	elseif matches(PRIMARY_INPUTS, input) and primaryHeld then
 		primaryHeld, primaryReleased = false, true
-	elseif matches(SECONDARY_INPUTS, input) then
-		secondaryHeld = false
+	elseif matches(SECONDARY_INPUTS, input) and secondaryHeld then
+		secondaryHeld, secondaryReleased = false, true
 	end
 end
 
@@ -98,6 +98,14 @@ function Input.setTouchPrimary(held: boolean)
 		primaryHeld, primaryPressed = true, true
 	elseif not held and primaryHeld then
 		primaryHeld, primaryReleased = false, true
+	end
+end
+
+function Input.setTouchSecondary(held: boolean)
+	if held and not secondaryHeld then
+		secondaryHeld, secondaryPressed = true, true
+	elseif not held and secondaryHeld then
+		secondaryHeld, secondaryReleased = false, true
 	end
 end
 
@@ -127,7 +135,9 @@ function Input.start()
 		if primaryHeld then
 			primaryHeld, primaryReleased = false, true
 		end
-		secondaryHeld = false
+		if secondaryHeld then
+			secondaryHeld, secondaryReleased = false, true
+		end
 	end)
 end
 
@@ -140,10 +150,13 @@ function Input.snapshot(): Types.InputSnapshot
 		PrimaryPressed = primaryPressed,
 		PrimaryReleased = primaryReleased,
 		SecondaryHeld = secondaryHeld,
+		SecondaryPressed = secondaryPressed,
+		SecondaryReleased = secondaryReleased,
 		Move = readMove(),
 	}
 	jumpPressed, jumpReleased = false, false
 	primaryPressed, primaryReleased = false, false
+	secondaryPressed, secondaryReleased = false, false
 	return snapshot
 end
 

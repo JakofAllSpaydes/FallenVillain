@@ -17,6 +17,7 @@
 local Shared = game:GetService("ReplicatedStorage").Shared
 local Destructibles = require(Shared.Destructibles)
 local Globe = require(Shared.Globe)
+local Progression = require(Shared.Progression)
 local Signal = require(Shared.Signal)
 local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
@@ -79,8 +80,10 @@ end
 
 local function release(ctx: Types.Ctx, hold: number, grounded: boolean): (Types.MovementState?, any)
 	local P = Tuning.Punch
+	-- The level caps the hold at its unlocked circles and scales the lunge (shared/Progression.luau).
+	hold = Progression.capHold("Punch", hold, ctx.Level)
 	local charge = math.clamp(hold / P.ChargeTime, 0, 1)
-	local boost = Punch.boostFor(hold)
+	local boost = Punch.boostFor(hold) * Progression.power(ctx.Level)
 	ctx.GlideEnergy = math.max(0, ctx.GlideEnergy - P.DashEnergyCost * charge)
 
 	local launch, at, proximity, instance = rocket(ctx, charge, grounded)
@@ -116,22 +119,35 @@ local function release(ctx: Types.Ctx, hold: number, grounded: boolean): (Types.
 	if not grounded then
 		return "Glide", nil
 	end
-	-- From the ground it always lifts off, so gravity carries it into a hop: a little for a jab, and in
-	-- proportion to the lunge for a charged one, so a huge punch launches into a flight around the planet.
+	-- From the ground a small punch is a lunge along the floor: a slide that friction bleeds (review note: every
+	-- tap felt like a rocket jump). A big one lifts off in proportion to the lunge, so a charged ground punch
+	-- launches into a flight around the planet.
+	if boost < P.GroundLaunchBoost and direction:Dot(up) < 0.3 then
+		ctx.LandVelocity = MathUtil.flat(velocity, up)
+		return "Slide", nil
+	end
 	local lift = math.max(P.GroundDashLift, boost * P.GroundDashLiftShare)
 	ctx.Velocity = MathUtil.flat(velocity, up) + up * math.max(velocity:Dot(up), lift)
 	return "Hop", { Launch = true }
 end
 
 function Punch.update(ctx: Types.Ctx, mode: ("Ground" | "Air")?, dt: number): (Types.MovementState?, any)
+	-- A click pressed and released inside one frame is still a tap: give it a zero hold to release below.
+	if ctx.PunchHold == nil and ctx.Input.PrimaryPressed and not ctx.Input.PrimaryHeld then
+		ctx.PunchHold = 0
+	end
 	if ctx.Input.PrimaryHeld then
 		local before = ctx.PunchHold
 		local hold = (before or 0) + dt * Tuning.Dev.ChargeSpeed
 		ctx.PunchHold = hold
 		if before == nil then
 			Punch.ChargeStarted:Fire(hold)
-		elseif MathUtil.tier(Tuning.Punch.Tiers, hold) > MathUtil.tier(Tuning.Punch.Tiers, before) then
-			Punch.TierReached:Fire(hold)
+		else
+			-- Tier chimes only for circles the level has unlocked.
+			local after = MathUtil.tier(Tuning.Punch.Tiers, hold)
+			if after > MathUtil.tier(Tuning.Punch.Tiers, before) and after <= Progression.circles(ctx.Level) - 1 then
+				Punch.TierReached:Fire(hold)
+			end
 		end
 		return nil
 	end

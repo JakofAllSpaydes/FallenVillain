@@ -1,7 +1,9 @@
 --!strict
 -- Altitude drives the sky (spec §5, §11): each frame, find the bands around the camera's altitude, lerp their
 -- looks, and ease Lighting, Atmosphere, the post bases and the audio low-pass toward it, so band edges never pop.
--- Client-only; writes local copies of Lighting properties.
+-- The day/night cycle (World/DayCycle) multiplies its tints and brightness into the result and adds its haze
+-- and bloom, so a golden hour on the surface is still a golden hour in the clouds. Client-only; writes local
+-- copies of Lighting properties.
 
 local Lighting = game:GetService("Lighting")
 local RunService = game:GetService("RunService")
@@ -13,6 +15,15 @@ local Tuning = require(Shared.Tuning)
 
 local Audio = require(script.Parent.Parent.Feel.Audio)
 local Post = require(script.Parent.Parent.Feel.Post)
+local DayCycle = require(script.Parent.DayCycle)
+
+local function tint(color: Color3, by: Color3): Color3
+	return Color3.new(
+		math.clamp(color.R * by.R, 0, 1),
+		math.clamp(color.G * by.G, 0, 1),
+		math.clamp(color.B * by.B, 0, 1)
+	)
+end
 
 local AtmosphereDriver = {}
 
@@ -53,19 +64,20 @@ local function target(altitude: number): { [string]: any }
 end
 
 local function apply(look: { [string]: any })
+	local day = DayCycle.current()
 	if atmosphere then
 		atmosphere.Density = look.AtmosphereDensity
 		atmosphere.Offset = look.AtmosphereOffset
-		atmosphere.Haze = look.AtmosphereHaze
+		atmosphere.Haze = math.max(0, look.AtmosphereHaze + day.Haze)
 		atmosphere.Glare = look.AtmosphereGlare
-		atmosphere.Color = look.AtmosphereColor
-		atmosphere.Decay = look.AtmosphereDecay
+		atmosphere.Color = tint(look.AtmosphereColor, day.Atmosphere)
+		atmosphere.Decay = tint(look.AtmosphereDecay, day.Decay)
 	end
-	Lighting.Ambient = look.Ambient
-	Lighting.OutdoorAmbient = look.OutdoorAmbient
-	Lighting.Brightness = look.Brightness
+	Lighting.Ambient = tint(look.Ambient, day.Ambient)
+	Lighting.OutdoorAmbient = tint(look.OutdoorAmbient, day.Outdoor)
+	Lighting.Brightness = look.Brightness * day.Brightness
 	Post.setBase("SunRays", look.SunRays)
-	Post.setBase("Bloom", look.Bloom)
+	Post.setBase("Bloom", math.max(0, look.Bloom + day.Bloom))
 	Audio.setLowPass(look.LowPass)
 end
 

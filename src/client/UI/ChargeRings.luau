@@ -2,8 +2,11 @@
 -- Concentric charge rings, one per tier. The rings are a purely visual split of one hold time: ring k fills
 -- from the end of ring k−1 to `ends[k]` seconds, so with tier ends that spread out, each ring fills fast at
 -- first and later rings take longer. Ring 1 is innermost; each ring appears when the previous one fills.
--- A filled ring turns gold; the ring that is filling shows its tier colour. Fades out (keeping its fill) when
--- the hold ends. Add a tier to the tier list and a ring appears for it.
+-- A filled ring turns gold; the ring that is filling shows its tier colour. Only the unlocked rings and the
+-- next one show (the next as a dim locked track, a tease of what a level will open); the rest stay hidden.
+-- The wheel only appears once the hold outlasts `showFrom` (so taps never flicker it) and fades in from
+-- Ui.WheelStartAlpha to full as the first ring completes. Fades out (keeping its fill) when the hold ends.
+-- Add a tier to the tier list and a ring appears for it.
 
 local Tuning = require(game:GetService("ReplicatedStorage").Shared.Tuning)
 local Arc = require(script.Parent.Arc)
@@ -13,6 +16,8 @@ ChargeRings.__index = ChargeRings
 
 -- Look of the rings; not gameplay tuning.
 local FULL = Color3.fromRGB(240, 200, 90)
+local LOCKED = Color3.fromRGB(70, 70, 80)
+local LOCKED_ALPHA = 0.45
 local TIER_COLORS = {
 	Color3.new(1, 1, 1),
 	Color3.fromRGB(175, 205, 255),
@@ -39,23 +44,48 @@ function ChargeRings.new(parent: Instance, count: number): ChargeRings
 end
 
 -- held: seconds of the current hold, or nil to fade out. ends: seconds where each ring is full.
--- showFrom: seconds before which nothing shows. maxed: everything shows gold (the charge can't grow further).
+-- showFrom: seconds before which nothing shows. maxed: everything unlocked shows gold (the charge can't grow
+-- further). unlocked: rings past this many are locked; the first locked one shows dim, the rest are hidden
+-- (default: all unlocked).
 function ChargeRings.update(
 	self: ChargeRings,
 	dt: number,
 	held: number?,
 	ends: { number },
 	showFrom: number,
-	maxed: boolean
+	maxed: boolean,
+	unlocked: number?
 )
-	local fadeStep = dt / Tuning.Ui.RingFade
+	local U = Tuning.Ui
+	local fadeStep = dt / U.RingFade
 	local active = held ~= nil and held >= showFrom
+	local open = unlocked or #self.Rings
 	if active then
 		self.Held = held :: number
 	end
+	-- The whole wheel fades in from WheelStartAlpha as the first ring completes.
+	local firstEnd = ends[1] or showFrom
+	local reveal = U.WheelStartAlpha
+		+ (1 - U.WheelStartAlpha) * math.clamp((self.Held - showFrom) / math.max(firstEnd - showFrom, 1e-3), 0, 1)
 	for k, ring in self.Rings do
 		local start = ends[k - 1] or 0
 		local finish = ends[k] or start
+		if k > open + 1 then
+			-- Beyond the tease: hidden.
+			ring.Alpha = 0
+			ring.Arc:set(0, LOCKED, 0)
+			continue
+		end
+		if k > open then
+			-- The next circle to earn: a dim empty track while the wheel is up.
+			ring.Fill = 0
+			ring.Color = LOCKED
+			ring.Alpha = if active
+				then math.min(LOCKED_ALPHA, ring.Alpha + fadeStep)
+				else math.max(0, ring.Alpha - fadeStep)
+			ring.Arc:set(0, ring.Color, ring.Alpha * reveal)
+			continue
+		end
 		local shown = active and (k == 1 or self.Held >= start)
 		if shown then
 			ring.Fill = math.clamp((self.Held - start) / math.max(finish - start, 1e-3), 0, 1)
@@ -64,7 +94,7 @@ function ChargeRings.update(
 		else
 			ring.Alpha = math.max(0, ring.Alpha - fadeStep)
 		end
-		ring.Arc:set(ring.Fill, ring.Color, ring.Alpha)
+		ring.Arc:set(ring.Fill, ring.Color, ring.Alpha * reveal)
 	end
 end
 

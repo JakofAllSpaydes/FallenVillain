@@ -212,7 +212,8 @@ local Tuning = {
 		BurstIgnition = 0,
 		Burst = 60,
 		Hang = 4,
-		Glide = 40,
+		Glide = 110, -- a free-falling glide builds speed (review note); pitching up levels it out
+
 		DiveStart = 196,
 		DiveEnd = 260,
 		DiveRampTime = 2,
@@ -250,7 +251,10 @@ local Tuning = {
 		ChargeHopMult = 0.85,
 		ChargeGlideMult = 0.9,
 		Reach = 60, -- clearance in studs within which a steep punch at a surface rocket-jumps
-		RocketMinAngle = 45, -- degrees below level the aim must be for a rocket jump; shallower is just a dash
+		RocketMinAngle = 50, -- degrees below level the aim must be for a rocket jump; shallower is just a dash
+		-- A ground dash under this lunge stays on the ground as a slide (review note: every tap felt like a rocket
+		-- jump); a bigger one launches into a hop with GroundDashLift / GroundDashLiftShare.
+		GroundLaunchBoost = 300,
 		RocketForwardShare = 0.6, -- share of the dash burst a rocket jump adds along your facing
 		ProximityExponent = 4, -- higher makes the point-blank sweet spot sharper
 		MinProximity = 0.2, -- a punch at the edge of Reach still bounces this much
@@ -269,8 +273,9 @@ local Tuning = {
 			{ 60, 14000 },
 		},
 		-- Seconds held where the charge steps up a tier: a chime, a new ring, bigger release juice. Each tier adds a
-		-- ring to the punch wheel; the last ring ends at the last HoldBoosts point.
-		Tiers = { 0.6, 5, 20 },
+		-- ring to the punch wheel; the last ring ends at the last HoldBoosts point. Four tiers plus the last
+		-- point make the five charge circles that levels unlock (shared/Progression.luau).
+		Tiers = { 0.6, 3, 10, 25 },
 		GroundDashLift = 35, -- a ground dash always leaves the ground with at least this much upward speed
 		GroundDashLiftShare = 0.15, -- or this share of the lunge, so a charged ground punch launches into a flight
 		DashEnergyCost = 10,
@@ -278,11 +283,9 @@ local Tuning = {
 	},
 
 	Burst = {
-		BaseVelocity = 350,
-		VelocityPerPower = 75, -- Power 25 reaches the top of HoldHeights (about 37,000)
-		MaxVelocity = 2100,
 		-- Height reached for a Space hold of N seconds (from the press), interpolated geometrically between points
-		-- so it starts gentle and climbs harder the longer you hold. Power caps it.
+		-- so it starts gentle and climbs harder the longer you hold. The level's power multiplier scales it and
+		-- the unlocked circles cap the hold (shared/Progression.luau).
 		HoldHeights = {
 			{ 1, 60 },
 			{ 3, 300 },
@@ -294,8 +297,8 @@ local Tuning = {
 			{ 60, 36000 },
 		},
 		-- Seconds held where the Burst charge steps up a tier (into the clouds, above them). The jump wheel shows a
-		-- hop ring, then one ring per tier, the last ending at the last HoldHeights point.
-		Tiers = { 5, 20 },
+		-- hop ring, then one ring per tier, the last ending at the last HoldHeights point: the five circles.
+		Tiers = { 5, 12, 25, 45 },
 		FeelFullHeight = 1500, -- Burst height at which byCharge effects reach full strength
 		MinFeelCharge = 0.15,
 		IgnitionTime = 0.3,
@@ -344,6 +347,11 @@ local Tuning = {
 		BodyPitchFraction = 0.5,
 		LookFollowWeight = 1,
 		LookFollowFullAngle = 45,
+		-- A glide only levels out when you ask it to (review note: not holding the dive shouldn't take back the
+		-- momentum of a long fall): pitching up (S, or the camera looking above LevelLookUp of the horizon)
+		-- holds the sink and turns the fall into forward speed; otherwise gravity keeps building the fall, and a
+		-- dive only builds it faster.
+		LevelLookUp = 0.1, -- the look direction's dot with up above which the glide levels out
 	},
 
 	GlideEnergy = {
@@ -387,6 +395,12 @@ local Tuning = {
 		RadiusSpeedDivisor = 7,
 		PlainPoundScale = PLAIN_POUND_SCALE, -- a plain landing's share of the radius; a punch pound gets it all
 		WaveSpeed = 200,
+		MaxWaveTime = 4, -- a huge smash's wave never takes longer than this to reach its edge
+		-- The fall bonus (review note: landing from space should explode big even without a punch): a dive's
+		-- smash radius grows by PeakRadiusBonus and its hits by Smash.PeakHitsBonus per PeakDivisor studs of
+		-- fall peak, so a drop from 36,000 is nearly three times the radius of the same speed from 1,000.
+		PeakDivisor = 10000,
+		PeakRadiusBonus = 0.6,
 	},
 
 	Smash = {
@@ -414,6 +428,7 @@ local Tuning = {
 		EdgeDamageShare = 0.35, -- damage at the edge of the radius relative to the centre, so towns crumble from the hit side
 		ContactRadius = 6, -- a non-dive contact breaks what it touched plus this much around it
 		RehitTime = 0.5, -- seconds before the same object can be hit again while you pass through it
+		PeakHitsBonus = 0.8, -- extra hits per Impact.PeakDivisor of fall peak on a dive's smash
 		PitchBySize = 0.35, -- break sounds drop in pitch with the prefab's scale (pitch × scale^-this)
 		CountBySize = 0.5, -- break dust, debris and sparks grow with the prefab's scale (count × scale^this)
 	},
@@ -437,55 +452,6 @@ local Tuning = {
 		FlashTime = 0.3, -- the hit flash fades over this
 		FlashFill = 0.35, -- fill transparency at the start of the flash (0 = solid)
 		FlashColor = Color3.fromRGB(255, 245, 230),
-	},
-
-	-- Wings (Feel/Wings.luau; spec §1, §4.1–4.9): two procedural demon wings on the local character's back,
-	-- each a fan of three dark panels with a glowing leading edge. Three values per wing follow the state on a
-	-- spring: spread (0 folded, 1 fanned), sweep (0 straight out, 1 back along the body) and flex (degrees of
-	-- elevation added), so they fold on the ground, open with the charge, throw up in a V on ignition, spread
-	-- wide and flutter in a glide, snap shut for a dive and crack open on a swoop. The edge glows with the
-	-- charge and the dive heat. Wingtip trails hang from the outer panels.
-	Wings = {
-		Scale = 1.15, -- overall size relative to the panel lengths below
-		PanelLengths = { 4.2, 5.6, 4.6 },
-		PanelDepths = { 1.4, 1.9, 1.6 },
-		PanelThickness = 0.12,
-		FanElevations = { 38, 12, -14 }, -- degrees from horizontal when fully spread, per panel
-		FoldElevation = 78, -- all panels this steep when folded
-		FoldSweep = 70, -- degrees back along the body when fully swept
-		PivotOffset = Vector3.new(0.55, 0.45, 0.55), -- from the torso centre (x mirrored per wing, z behind)
-		Color = Color3.fromRGB(36, 30, 34),
-		EdgeColor = Color3.fromRGB(255, 200, 120),
-		EdgeHeatColor = Color3.fromRGB(255, 130, 50),
-		EdgeMaxGlow = 0.9, -- edge strip opacity at full glow
-		SpringFrequency = 5, -- Hz the wing values follow their targets
-		SpringDamping = 0.6,
-		SnapFrequency = 12, -- the pair used for SnapTime after a state change (dive tuck, swoop crack)
-		SnapDamping = 0.45,
-		SnapTime = 0.18,
-		FlexByClimb = 22, -- degrees of flex per unit of climb / GlideFlexRef (up on climb, down on sink)
-		FlexByBank = 0.35, -- degrees per degree of bank, outer wing up
-		Flutter = 3, -- degrees of slow flutter in a glide
-		FlutterHz = 1.4,
-		StrainShake = 4, -- degrees of shake when glide energy is under the strain threshold
-		StrainHz = 14,
-		BurstGlowTime = 0.6, -- the edge flashes to full on ignition and fades over this
-		-- Per-state targets { spread, sweep, flex }.
-		Poses = {
-			Grounded = { 0.1, 0.9, 0 },
-			Landing = { 0.15, 0.85, 0 },
-			Charging = { 0.25, 0.75, 10 },
-			Slide = { 0.5, 0.6, 15 },
-			Hop = { 0.55, 0.3, 10 },
-			Burst = { 0.6, 0.2, 45 },
-			BurstLate = { 1, 0.1, 15 }, -- the last ApexSpread seconds before the apex: wings slowly spread wide
-			Hang = { 1, 0.1, 10 },
-			Glide = { 1, 0.1, 0 },
-			Dive = { 0, 1, -10 },
-			Swoop = { 1, 0, 35 },
-		},
-		ApexSpread = 0.8, -- seconds before the apex the spread begins (spec §4.3 deceleration cue)
-		ChargeSpread = 0.4, -- extra spread at a full Burst charge while Charging
 	},
 
 	-- Pulses (Feel/Pulse.luau; spec §4.1, §4.3, §4.6): a beat timer whose rate and strength follow the moment.
@@ -532,6 +498,7 @@ local Tuning = {
 	-- (spec §4.8: 30 + (radius − distance) × 2, upward bias 0.4), one bounce off the globe, then fade.
 	Chunks = {
 		Pool = 120, -- at most this many alive per client (spec §4.12 said 40; a town wave needs more); past it, particles only
+		MaxBreakFeels = 300, -- a single broadcast past this many breaks plays feel for the nearest only (the spirit bomb)
 		RemoteRange = 300, -- other players' breaks show chunks only this close
 		BaseSpeed = 45,
 		SpeedPerStud = 2,
@@ -611,18 +578,21 @@ local Tuning = {
 			Tower = { 1.2, 4.5 },
 			RadioMast = { 1, 2.4 },
 			-- Landmarks are monuments (review note: way bigger): the smallest is twice the template.
-			Pyramid = { 2, 5 },
-			Skyscraper = { 1.8, 4 },
-			Silo = { 1.8, 3.5 },
-			Windmill = { 1.8, 3.2 },
-			Statue = { 2, 5 },
-			Dome = { 1.8, 4 },
+			Pyramid = { 3, 8 },
+			Skyscraper = { 2.5, 7 },
+			Silo = { 2.5, 6 },
+			Windmill = { 2.5, 5 },
+			Statue = { 3, 8 },
+			Dome = { 2.5, 6 },
+			Obelisk = { 3, 8 },
+			Arch = { 3, 7 },
+			Monolith = { 3, 9 },
 		},
 		TownSkyscraperScale = { 1.2, 2.2 }, -- a town's centre skyscraper stays within its lot
 		-- Landmarks: big silhouettes placed alone with a ring of lamps (review note: layers of things to smash),
 		-- plus a chance of a skyscraper at a town's centre and a windmill at a hamlet's.
-		Landmarks = 30,
-		LandmarkKinds = { "Pyramid", "Skyscraper", "Silo", "Windmill", "Statue", "Dome" },
+		Landmarks = 48, -- review note: more and bigger landmarks, more variance
+		LandmarkKinds = { "Pyramid", "Skyscraper", "Silo", "Windmill", "Statue", "Dome", "Obelisk", "Arch", "Monolith" },
 		LandmarkLamps = 6,
 		LandmarkLampRing = 46, -- studs from the landmark (scaled by its size)
 		TownSkyscraperChance = 0.6,
@@ -632,20 +602,96 @@ local Tuning = {
 		YieldEvery = 150, -- models placed per frame while generating
 	},
 
-	Laser = {
-		MaxRange = 1200,
-		BaseWidth = 2,
-		WidthPerAltitude = 1 / 1000,
-		BaseDps = 40,
-		DpsPerAltitude = 1 / 40,
-		EnergyMax = 100,
-		EnergyDrain = 30,
-		EnergyRefill = 25,
-		FallSlowdown = 0.3,
-		CutterWidth = 1,
-		CutterDps = 25,
-		SweepSampleSpacing = 4,
-		HitBatchInterval = 0.1,
+	-- RMB blast (spec §15 milestone 6, replacing the §3/§4.11 laser): a tap fires a power blast, a glowing
+	-- projectile that smashes where it lands; a hold past ChargeTime charges a beam that fires on release for
+	-- BeamTime, sweeping with the aim and smashing at its hit point every BeamTickTime. Strengths are in speed
+	-- units (hits = strength / Smash.SpeedPerHit on the server, the smash radius Radius + strength /
+	-- RadiusStrengthDivisor), scaled by the level's power multiplier; the unlocked circles cap the hold.
+	-- The release depends on how many circles the hold filled (review note: "different move based on how many
+	-- circles are charged"): under ChargeTime a single shot; up to the second circle's end a chain of bigger
+	-- shots (more with the charge); up to the fourth a kamehameha beam that starts house-wide and grows to
+	-- building-tall and planet-long; past the fourth the spirit bomb: a ball charges above the head, huge from
+	-- the start and titanic at the fifth circle, thrown on release to explode everything where it lands.
+	Blast = {
+		ChargeTime = 0.5, -- a release before this is a single shot
+		Cooldown = 0.2, -- review note: shoot twice as often
+		MaxRange = 1200, -- a shot's range, and the aim ray's
+		-- Strength for a hold of N seconds (geometric between points), the shot is the first point.
+		-- The spirit bomb's charge is uncapped once every circle is unlocked (review note: "infinite charge, keeps
+		-- getting bigger until you can hit everything on the planet"): the points past 60 s keep the strength
+		-- climbing; at 90,000 the server's radius is 7,500 studs, most of a hemisphere.
+		HoldStrengths = {
+			{ 0, 160 },
+			{ 0.5, 220 },
+			{ 3, 420 },
+			{ 10, 900 },
+			{ 25, 1800 },
+			{ 60, 6000 },
+			{ 120, 15000 },
+			{ 300, 40000 },
+			{ 600, 90000 },
+		},
+		Tiers = { 0.5, 3, 10, 25 }, -- with the last HoldStrengths point, the five circles
+		Radius = 10, -- smash radius of a shot or beam tick at zero strength...
+		RadiusStrengthDivisor = 12, -- ...plus strength / this
+		-- Shots.
+		ShotSpeed = 420,
+		ShotPool = 24,
+		ShotSize = 2.2, -- studs
+		ShotRecoil = 18, -- speed added opposite the aim on a shot...
+		BeamRecoil = 45, -- ...and on a beam's start
+		-- The chain (circles 1–2): ChainMinShots at ChargeTime up to ChainMaxShots at the second circle's end,
+		-- one every ChainInterval with a little spread, each this share of the hold's strength and this big.
+		ChainMinShots = 4,
+		ChainMaxShots = 20,
+		ChainInterval = 0.07,
+		ChainSpread = 4, -- degrees
+		ChainShotShare = 0.5,
+		ChainShotSize = 3.4,
+		-- The beam (circles 3–4): duration, width and reach for the hold.
+		HoldBeamTimes = {
+			{ 3, 1 },
+			{ 10, 1.8 },
+			{ 25, 2.8 },
+		},
+		-- Review note: the beam must start huge and read as a solid cylinder, not a ribbon.
+		HoldBeamWidths = {
+			{ 3, 34 },
+			{ 10, 70 },
+			{ 25, 130 },
+		},
+		BeamSegments = 4, -- cylinder parts the beam is built from (parts cap at 2,048 studs each)
+		HoldBeamRanges = {
+			{ 3, 1500 },
+			{ 10, 3000 },
+			{ 25, 6000 },
+		},
+		BeamTickTime = 0.08, -- seconds between the beam's smashes at its hit point
+		BeamTickShare = 0.35, -- each tick deals this share of the beam's strength
+		-- The spirit bomb (circle 5): the ball above the head grows from the fourth circle's end to the fifth.
+		SpiritStartRadius = 18,
+		SpiritMaxRadius = 60, -- at the fifth circle's end; past it the ball keeps growing at the same rate...
+		SpiritCapRadius = 500, -- ...up to this
+		SpiritHeight = 6, -- studs between the head and the ball's underside
+		SpiritSpeed = 400, -- thrown at least this fast toward the aim...
+		SpiritFlightTime = 1.5, -- ...and fast enough to land within this many seconds (review note: it arrived late)
+		SpiritSpin = 0.6, -- radians per second the ball turns while charging
+		FallBrake = 1.2, -- 1/seconds the fall is braked while the beam fires (spec §3: the laser slowed the fall)
+		ChargeWalkMult = 0.8,
+		ChargeHopMult = 0.85,
+		ChargeGlideMult = 0.9,
+		HandLift = 0.4, -- studs above the hands' midpoint the beam leaves from
+	},
+
+	-- Progression (shared/Progression.luau; spec §15 milestone 6): levels from combo cash. XP to the next level
+	-- grows linearly; CircleLevels unlock the charge circles; power runs from PowerMin at level 1 to 1 at MaxLevel.
+	Progression = {
+		MaxLevel = 100,
+		XpBase = 150,
+		XpPerLevel = 60,
+		XpPerCash = 1,
+		CircleLevels = { 1, 10, 25, 45, 70 },
+		PowerMin = 0.5,
 	},
 
 	Combo = {
@@ -669,9 +715,6 @@ local Tuning = {
 		AltitudeMultDivisor = 2000,
 		CashPerAltitudeOnLanding = 1 / 100,
 		RingCash = 20,
-		PowerMaxLevel = 25,
-		PowerBaseCost = 100,
-		PowerCostGrowth = 1.4,
 		JetpackCost = 5000,
 	},
 
@@ -687,6 +730,7 @@ local Tuning = {
 			StickDeadzone = 0.12,
 			JumpButton = { Size = 104, Right = 196, Bottom = 118 },
 			PunchButton = { Size = 136, Right = 36, Bottom = 36 },
+			BlastButton = { Size = 96, Right = 318, Bottom = 40 },
 			MinScale = 0.75, -- the layout never scales below this on small screens (thumbs don't shrink)
 			MaxScale = 1.25,
 		},
@@ -1276,6 +1320,145 @@ local Tuning = {
 			{ spawn = "LightColumn", height = 3000, width = 4, alpha = 0.7, dur = 3 },
 			{ spawn = "Shockwave", radius = 60, alpha = 0.5, dur = 0.6 },
 		},
+
+		-- Progression (spec §15 milestone 6). Level up: a fanfare, a chime run, a pillar of light and a ring at the
+		-- player, a flash, a lean-in and a slow-motion beat. Unlocking a circle adds a boom and a taller pillar.
+		LevelUp = {
+			{ sound = "LevelUp" },
+			{ sound = "TierChime1", delay = 0.05 },
+			{ sound = "TierChime2", delay = 0.17 },
+			{ sound = "TierChime4", delay = 0.29 },
+			{ post = "Flash", kick = 0.3, dur = 0.35, curve = "expo" },
+			{ post = "Bloom", kick = 0.6, dur = 1 },
+			{ cam = "fovOffset", kick = 6, dur = 0.5, curve = "spring" },
+			{ time = 0.4, dur = 0.35, ease = true },
+			{ haptic = "Rumble", kick = 0.6, dur = 0.3, curve = "expo" },
+			{ spawn = "LightColumn", height = 220, width = 3, alpha = 0.7, dur = 1.4 },
+			{ spawn = "Shockwave", radius = 14, alpha = 0.8, dur = 0.5 },
+			{ spawn = "Flash3D", size = 16, lift = 3, dur = 0.4 },
+			{ spawn = "Sparks", count = 60 },
+		},
+		CircleUnlocked = {
+			{ sound = "SubHit", volume = 0.7, delay = 0.3 },
+			{ post = "Flash", kick = 0.25, dur = 0.4, curve = "expo", delay = 0.3 },
+			{ spawn = "LightColumn", height = 1200, width = 5, alpha = 0.8, dur = 2.5 },
+			{ spawn = "Shockwave", radius = 30, alpha = 0.7, dur = 0.7, delay = 0.3 },
+			{ cam = "shake", kick = 0.6, freq = 30, dur = 0.5, curve = "expo", delay = 0.3 },
+			{ time = 0.3, dur = 0.45, ease = true, delay = 0.3 },
+		},
+
+		-- The blast (spec §15 milestone 6). Charging hums and glows at the hands; tiers chime; a shot zaps away
+		-- with a kick; its landing is a small smash by strength; the beam cracks on, hums and holds the camera,
+		-- then cuts with a thunk.
+		BlastCharge = {
+			{ loop = "BlastHum", from = 0, to = 1, dur = 0.2, pitchFrom = 0, pitchTo = 1.2, pitchDur = 30 },
+		},
+		BlastTier = {
+			{ sound = "TierChime1", maxHeld = 3 },
+			{ sound = "TierChime2", minHeld = 3, maxHeld = 25 },
+			{ sound = "TierChime3", minHeld = 25 },
+			{ cam = "fovOffset", kick = 2, dur = 0.25 },
+		},
+		Shot = {
+			{ loop = "BlastHum", to = 0, dur = 0.1 },
+			{ sound = "Shot" },
+			{ cam = "fovOffset", kick = 3, dur = 0.3, curve = "spring" },
+			{ cam = "recoilBack", kick = 0.8, dur = 0.3, curve = "spring" },
+			{ haptic = "Rumble", kick = 0.3, dur = 0.12, curve = "expo" },
+			{ spawn = "Flash3D", size = 5, dur = 0.2 },
+			{ spawn = "Sparks", count = 10 },
+		},
+		-- Where a shot lands or a beam tick smashes (the event's speed is the strength).
+		BlastHit = {
+			{ sound = "SubHit", volume = 0.7, bySpeed = true, minSpeed = 100, fullSpeed = 1500 },
+			{ spawn = "Flash3D", size = 16, lift = 2, dur = 0.3, bySpeed = true, minSpeed = 100, fullSpeed = 1500 },
+			{ spawn = "Shockwave", radius = 1, bySmashRadius = true, alpha = 0.8, dur = 0.4 },
+			{ spawn = "Dust", count = 40, bySpeed = true, minSpeed = 100, fullSpeed = 1500 },
+			{ spawn = "Sparks", count = 30, bySpeed = true, minSpeed = 100, fullSpeed = 1500 },
+			{ spawn = "Debris", count = 8, speedMin = 20, speedMax = 60, upBias = 0.8, life = 1.6 },
+			{
+				cam = "shake",
+				kick = 0.45,
+				freq = 35,
+				dur = 0.3,
+				curve = "expo",
+				bySpeed = true,
+				minSpeed = 100,
+				fullSpeed = 1500,
+			},
+			{
+				post = "Flash",
+				kick = 0.1,
+				dur = 0.15,
+				curve = "expo",
+				bySpeed = true,
+				minSpeed = 400,
+				fullSpeed = 2000,
+			},
+		},
+		BeamHit = {
+			{ spawn = "Sparks", count = 8 },
+			{ spawn = "Dust", count = 5 },
+		},
+		BeamStart = {
+			{ loop = "BlastHum", to = 0, dur = 0.05 },
+			{ sound = "BurstCrack", volume = 0.6, pitch = 1.3 },
+			{ loop = "BeamHum", from = 0, to = 1, dur = 0.1 },
+			{ cam = "fovOffset", to = 6, dur = 0.2 },
+			{ cam = "distanceOffset", to = 3, dur = 0.3 },
+			{ cam = "recoilBack", kick = 1.5, dur = 0.4, curve = "spring" },
+			{ cam = "shake", kick = 0.6, freq = 40, dur = 0.4, curve = "expo" },
+			{ post = "Flash", kick = 0.3, dur = 0.25, curve = "expo" },
+			{ post = "Bloom", to = 0.5, dur = 0.2 },
+			{ haptic = "Rumble", kick = 0.7, dur = 0.4, curve = "hold" },
+			{ time = 0.5, dur = 0.12, ease = true },
+		},
+		BeamEnd = {
+			{ loop = "BeamHum", to = 0, dur = 0.15 },
+			{ sound = "BeamCut" },
+			{ cam = "fovOffset", to = 0, dur = 0.4 },
+			{ cam = "distanceOffset", to = 0, dur = 0.5 },
+			{ post = "Bloom", to = 0, dur = 0.4 },
+		},
+		-- The chain's first shot, and the spirit bomb leaving the hands (the event's speed is its strength).
+		ChainStart = {
+			{ loop = "BlastHum", to = 0, dur = 0.05 },
+			{ cam = "shake", kick = 0.5, freq = 30, dur = 0.6, curve = "hold" },
+			{ haptic = "Rumble", kick = 0.5, dur = 0.6, curve = "hold" },
+		},
+		-- The spirit bomb landing (the event's speed is its strength): a white-out, a long freeze into slow motion,
+		-- a shake that goes on, and the biggest rings the globe can draw.
+		SpiritHit = {
+			{ post = "Flash", kick = 1, dur = 1.2, curve = "hold" },
+			{ time = 0, dur = 0.3 },
+			{ time = 0.2, dur = 2, ease = true },
+			{ cam = "shake", kick = 2.5, freq = 25, dur = 2.5, curve = "hold" },
+			{ cam = "fovOffset", kick = -15, dur = 1.2, curve = "spring" },
+			{ sound = "SubHit", volume = 1.5, pitch = 0.6 },
+			{ sound = "BurstCrack", volume = 1.2, pitch = 0.6, delay = 0.3 },
+			{ sound = "HeavyLand", volume = 1.2, pitch = 0.5, delay = 0.3 },
+			{ spawn = "Flash3D", size = 400, lift = 40, dur = 1.5 },
+			{ spawn = "Shockwave", radius = 1, bySmashRadius = true, alpha = 1, dur = 2 },
+			{ spawn = "Shockwave", radius = 1.6, bySmashRadius = true, alpha = 0.7, dur = 3, delay = 0.2 },
+			{ spawn = "DustRing", radius = 0.8, bySmashRadius = true, count = 400, delay = 0.2 },
+			{ spawn = "LightColumn", height = 6000, width = 60, alpha = 0.9, dur = 4 },
+			{ post = "Vignette", kick = 0.8, dur = 3 },
+			{ post = "Saturation", kick = -0.8, dur = 3 },
+			{ haptic = "Rumble", kick = 1, dur = 1.5, curve = "hold" },
+			{ bus = "Wind", kick = 1, dur = 2, curve = "hold" },
+			{ bus = "Music", kick = 1, dur = 2, curve = "hold" },
+		},
+		SpiritThrow = {
+			{ loop = "BlastHum", to = 0, dur = 0.05 },
+			{ sound = "BurstCrack", volume = 0.8, pitch = 0.7 },
+			{ sound = "SubHit", volume = 0.8 },
+			{ cam = "fovOffset", kick = 10, dur = 0.6, curve = "spring" },
+			{ cam = "recoilBack", kick = 3, dur = 0.5, curve = "spring" },
+			{ cam = "shake", kick = 1, freq = 30, dur = 0.8, curve = "expo" },
+			{ post = "Flash", kick = 0.5, dur = 0.4, curve = "expo" },
+			{ time = 0.4, dur = 0.3, ease = true },
+			{ haptic = "Rumble", kick = 1, dur = 0.5, curve = "expo" },
+		},
 	} :: { [string]: FeelList },
 
 	-- Placeholder sounds from the engine's built-in content until the audio pass (milestone 7).
@@ -1354,6 +1537,19 @@ local Tuning = {
 			Jitter = 0.12,
 		},
 		Through = { Id = "rbxasset://sounds/action_jump.mp3", Bus = "Sfx", Volume = 0.35, Pitch = 1.7, Jitter = 0.1 },
+		-- The blast: a charge hum, the shot's zap, the beam's crack and sustained hum, its cut.
+		BlastHum = { Id = "rbxasset://sounds/action_falling.ogg", Bus = "Sfx", Volume = 0.3, Pitch = 0.9, Loop = true },
+		Shot = {
+			Id = "rbxasset://sounds/electronicpingshort.wav",
+			Bus = "Sfx",
+			Volume = 0.55,
+			Pitch = 0.75,
+			Jitter = 0.1,
+		},
+		BeamHum = { Id = "rbxasset://sounds/Rocket whoosh 01.wav", Bus = "Sfx", Volume = 0.7, Pitch = 1.1, Loop = true },
+		BeamCut = { Id = "rbxasset://sounds/action_jump_land.mp3", Bus = "Sfx", Volume = 0.6, Pitch = 0.5 },
+		-- Level up: a fanfare and a rising chime run.
+		LevelUp = { Id = "rbxasset://sounds/victory.wav", Bus = "Ui", Volume = 0.55, Pitch = 1 },
 		-- Pulses: a bass thump for the heart and the charge; the wings' strain creak loops; the forced-dive cry.
 		Heartbeat = { Id = "rbxasset://sounds/bass.wav", Bus = "Sfx", Volume = 0.55, Pitch = 0.9, Jitter = 0.03 },
 		ChargePulse = { Id = "rbxasset://sounds/bass.wav", Bus = "Sfx", Volume = 0.45, Pitch = 0.6, Jitter = 0.03 },
@@ -1465,6 +1661,17 @@ local Tuning = {
 		SparkSquash = -3, -- negative stretches each spark along its travel
 		SparkGravity = 60,
 		SparkDrag = 3,
+		-- The blast (Combat/Blaster.luau): orb and beam colours, the shot's light and trail, the beam's glow.
+		BlastColor = Color3.fromRGB(255, 205, 130),
+		BlastCoreColor = Color3.fromRGB(255, 250, 240),
+		ShotLight = 6,
+		ShotLightRange = 16,
+		ShotTrailLifetime = 0.35,
+		BeamGlowTransparency = 0.6, -- the soft ribbon halo around the solid beam
+		BeamHaloScale = 1.8, -- the halo's width relative to the cylinder
+		BeamShellTransparency = 0.4, -- the cylinder's outer shell; its core is solid
+		SpiritShellTransparency = 0.35, -- the bomb's outer shell; its core is solid
+		SpiritLight = 10,
 		-- Fist glow sprite while a punch charges.
 		FistGlowSize = 2.2, -- studs at full charge
 		FistGlowAlpha = 0.85,
@@ -1534,7 +1741,7 @@ local Tuning = {
 		-- falling and scale up to full). Driven by descent speed in any air state, saturating at Ref: the camera
 		-- pulls in by Zoom studs, the FOV widens by Fov, the blur, shake and rush build.
 		Fall = {
-			Ref = 260,
+			Ref = 150, -- review note: get into the fast-fall feel in half the time
 			Zoom = 8,
 			Fov = 12,
 			Blur = 6,
@@ -1588,6 +1795,8 @@ local Tuning = {
 		BurstKickTime = 0.22,
 		-- Falling in a hop: arms rise with the fall speed.
 		HopFallRef = 90,
+		-- The blast: the charge pose weighs in over Blast.ChargeTime; a shot kicks BlastShot for this long.
+		BlastShotTime = 0.35,
 		Fade = 0.12, -- clip crossfade seconds
 		WalkMinSpeed = 1.5, -- below this the idle clip plays
 		RunSpeed = 12, -- at or above this the run clip plays instead of the walk clip
@@ -1853,6 +2062,48 @@ local Tuning = {
 			Waist = { T = 14 },
 			Neck = { P = -8 },
 		},
+		-- The blast (spec §15 milestone 6): the charge draws both hands to the right hip, the shot throws one arm
+		-- out, the beam braces both arms straight forward.
+		BlastCharge = {
+			RShoulder = { P = -25, S = 30 },
+			RElbow = { P = 115 },
+			LShoulder = { P = 15, S = 45 },
+			LElbow = { P = 105 },
+			Waist = { T = -35 },
+			Neck = { T = 28, P = 4 },
+			Root = { P = -4 },
+		},
+		BlastShot = {
+			RShoulder = { P = 100, S = -8 },
+			RElbow = { P = 0 },
+			LShoulder = { P = 45, S = 20 },
+			Waist = { T = 25 },
+			Neck = { T = -15 },
+			Root = { Fwd = 0.25, P = -6 },
+		},
+		-- The spirit bomb charge: both arms straight up, head back.
+		BlastSpirit = {
+			RShoulder = { P = 175, S = 12 },
+			LShoulder = { P = 175, S = -12 },
+			RElbow = { P = 0 },
+			LElbow = { P = 0 },
+			Neck = { P = 25 },
+			Root = { P = 6 },
+			Waist = { T = 0, P = 4 },
+		},
+		BlastFire = {
+			RShoulder = { P = 92, S = -6 },
+			LShoulder = { P = 92, S = 6 },
+			RElbow = { P = 0 },
+			LElbow = { P = 0 },
+			Waist = { T = 0, P = -4 },
+			Neck = { P = -4 },
+			Root = { P = -8, Fwd = -0.1 },
+			LKnee = { P = -20 },
+			RKnee = { P = -20 },
+			LHip = { P = 10 },
+			RHip = { P = 10 },
+		},
 		-- Ignition whip: the arms are thrown forward for an instant before the Burst pose pulls them back.
 		BurstKick = {
 			Root = { Up = 0.3 },
@@ -1866,6 +2117,129 @@ local Tuning = {
 		Smoothing = 0.5, -- seconds; band transitions ease with this time constant
 	},
 
+	-- Day/night cycle (World/DayCycle.luau; review note at milestone 6: "real days passing, faster; golden hour,
+	-- afternoon, evening, dusk, not two states; about five minutes a cycle, night shorter than day"). The clock is
+	-- shared from the server's start time, so everyone sees the same sky. Day runs 6:00 to 18:00 over DayShare of
+	-- CycleLength, night 18:00 to 6:00 over the rest. Keys are looks at clock hours, blended smoothly between
+	-- neighbours and multiplied into the altitude band's look (SkyBands): Ambient/Outdoor/Atmosphere/Decay are
+	-- colour multipliers, Brightness a multiplier, Haze and Bloom added, Exposure set, ShiftTop the sun tint.
+	DayCycle = {
+		CycleLength = 300, -- seconds per full day
+		DayShare = 0.6, -- share of the cycle that is daytime (3 of 5 minutes)
+		StartClock = 9, -- the server starts the world at this hour
+		Keys = {
+			-- Nights stay readable (review note: too dark to see): dimmer and blue, never black.
+			{
+				Clock = 4.5, -- deep night
+				Ambient = Color3.new(0.55, 0.58, 0.78),
+				Outdoor = Color3.new(0.5, 0.55, 0.8),
+				Brightness = 0.6,
+				Exposure = -0.15,
+				Atmosphere = Color3.new(0.45, 0.5, 0.72),
+				Decay = Color3.new(0.42, 0.47, 0.7),
+				Haze = 0.3,
+				Bloom = 0.15,
+				ShiftTop = Color3.fromRGB(70, 84, 140),
+			},
+			{
+				Clock = 5.6, -- pre-dawn blue
+				Ambient = Color3.new(0.62, 0.64, 0.8),
+				Outdoor = Color3.new(0.58, 0.6, 0.82),
+				Brightness = 0.68,
+				Exposure = -0.1,
+				Atmosphere = Color3.new(0.5, 0.55, 0.78),
+				Decay = Color3.new(0.5, 0.55, 0.8),
+				Haze = 0.4,
+				Bloom = 0.1,
+				ShiftTop = Color3.fromRGB(80, 96, 150),
+			},
+			{
+				Clock = 6.6, -- sunrise, golden
+				Ambient = Color3.new(0.95, 0.8, 0.66),
+				Outdoor = Color3.new(0.9, 0.75, 0.6),
+				Brightness = 0.85,
+				Exposure = 0,
+				Atmosphere = Color3.new(1.05, 0.85, 0.68),
+				Decay = Color3.new(1, 0.7, 0.5),
+				Haze = 0.8,
+				Bloom = 0.35,
+				ShiftTop = Color3.fromRGB(255, 190, 120),
+			},
+			{
+				Clock = 9, -- morning
+				Ambient = Color3.new(1, 1, 1),
+				Outdoor = Color3.new(1, 1, 1),
+				Brightness = 1,
+				Exposure = 0,
+				Atmosphere = Color3.new(1, 1, 1),
+				Decay = Color3.new(1, 1, 1),
+				Haze = 0,
+				Bloom = 0,
+				ShiftTop = Color3.fromRGB(255, 246, 236),
+			},
+			{
+				Clock = 13, -- afternoon, bright and clear
+				Ambient = Color3.new(1.05, 1.05, 1.05),
+				Outdoor = Color3.new(1.06, 1.06, 1.04),
+				Brightness = 1.1,
+				Exposure = 0.05,
+				Atmosphere = Color3.new(1, 1, 1.02),
+				Decay = Color3.new(1, 1, 1),
+				Haze = -0.2,
+				Bloom = 0,
+				ShiftTop = Color3.fromRGB(255, 250, 242),
+			},
+			{
+				Clock = 16.6, -- golden hour
+				Ambient = Color3.new(1, 0.9, 0.75),
+				Outdoor = Color3.new(1, 0.88, 0.7),
+				Brightness = 0.9,
+				Exposure = 0.05,
+				Atmosphere = Color3.new(1.05, 0.9, 0.74),
+				Decay = Color3.new(1, 0.74, 0.54),
+				Haze = 0.6,
+				Bloom = 0.35,
+				ShiftTop = Color3.fromRGB(255, 200, 130),
+			},
+			{
+				Clock = 18.3, -- dusk, pink to purple
+				Ambient = Color3.new(0.75, 0.6, 0.72),
+				Outdoor = Color3.new(0.7, 0.55, 0.72),
+				Brightness = 0.6,
+				Exposure = -0.15,
+				Atmosphere = Color3.new(0.9, 0.62, 0.76),
+				Decay = Color3.new(0.72, 0.45, 0.66),
+				Haze = 0.7,
+				Bloom = 0.25,
+				ShiftTop = Color3.fromRGB(236, 140, 152),
+			},
+			{
+				Clock = 19.8, -- evening, deep blue
+				Ambient = Color3.new(0.62, 0.64, 0.82),
+				Outdoor = Color3.new(0.58, 0.6, 0.82),
+				Brightness = 0.68,
+				Exposure = -0.1,
+				Atmosphere = Color3.new(0.55, 0.6, 0.84),
+				Decay = Color3.new(0.5, 0.55, 0.8),
+				Haze = 0.4,
+				Bloom = 0.1,
+				ShiftTop = Color3.fromRGB(100, 112, 176),
+			},
+			{
+				Clock = 22.5, -- night
+				Ambient = Color3.new(0.55, 0.58, 0.78),
+				Outdoor = Color3.new(0.5, 0.55, 0.8),
+				Brightness = 0.6,
+				Exposure = -0.15,
+				Atmosphere = Color3.new(0.45, 0.5, 0.72),
+				Decay = Color3.new(0.42, 0.47, 0.7),
+				Haze = 0.3,
+				Bloom = 0.15,
+				ShiftTop = Color3.fromRGB(70, 84, 140),
+			},
+		},
+	},
+
 	Net = {
 		BurstMinInterval = 5, -- spec §13 rate limit
 		MaxPositionError = 40, -- reported positions further than this from the replicated character are ignored...
@@ -1875,8 +2249,10 @@ local Tuning = {
 		-- destruction stopped happening; the old per-contact rate limits were throwing them away).
 		MaxContactsPerBatch = 32,
 		ContactBudgetPerSecond = 60,
-		MaxOverlapParts = 600, -- parts a smash's radius query may return (the engine's default of 20 starved big pounds)
+		MaxOverlapParts = 4000, -- parts a smash's radius query may return (the engine's default of 20 starved big pounds)
+		OverlapRadiusLimit = 600, -- beyond this radius the server scans every object by distance instead of querying
 		MaxSpeed = 20000, -- reported contact speeds above this are dropped (a 60 s punch is 14,000)
+		MaxBlastStrength = 100000, -- the spirit bomb's uncapped charge reports strengths well past MaxSpeed
 		MaxFallPeak = 45000, -- reported dive start altitudes are clamped here (a full Burst is 36,000)
 		HitMaxDistance = 20, -- the contact point must be within this of the hit object's bounding box
 	},
@@ -1958,6 +2334,9 @@ local Tuning = {
 			Windmill = "WINDMILL",
 			Statue = "STATUE",
 			Dome = "DOME",
+			Obelisk = "OBELISK",
+			Arch = "ARCH",
+			Monolith = "MONOLITH",
 		},
 		-- Cash readout pop whenever it counts up (slam curve).
 		CashPop = 0.4,
@@ -1969,9 +2348,30 @@ local Tuning = {
 		RingInnerScale = 0.38, -- innermost ring size relative to the outermost; the rest are spaced evenly between
 		RingFade = 0.2,
 		PunchWheelSize = 110,
-		PunchWheelOffset = 80, -- pixels right of and below the crosshair
+		PunchWheelOffset = 80, -- pixels right of and below the crosshair (the blast wheel sits on the crosshair)
 		JumpWheelSize = 130,
 		JumpWheelHeight = 5, -- studs above the root
+		-- A wheel appears only once a hold outlasts a tap (review note: taps shouldn't flicker the rings), fading
+		-- in from WheelStartAlpha to full as the first ring completes. Rings past the unlocked ones are hidden
+		-- except the next, shown dim as a tease.
+		WheelShowAfter = 0.3,
+		WheelStartAlpha = 0.3,
+		XpDevButton = 44, -- Studio-only RESET and MAX level buttons beside the bar, pixels
+		-- XP bar (UI/XpBar.luau): a thin bar across the top with the level beside it. Toasts fly into it and it
+		-- pulses as each one lands; filling it plays the level-up celebration.
+		XpBarTop = 12,
+		XpBarWidth = 440,
+		XpBarHeight = 9,
+		XpLevelSize = 20,
+		XpFillResponse = 10, -- 1/seconds the shown fill follows the target
+		XpPulse = 0.35, -- bar pop (slam curve) when XP lands
+		XpPulseScale = 1.12,
+		XpBannerSize = 44, -- the LEVEL UP banner's number size
+		XpBannerTime = 1.6, -- seconds the banner holds before sliding out
+		XpBannerPop = 0.6,
+		XpBannerPopScale = 2.4,
+		ToastFlyTime = 0.45, -- a toast's flight into the XP bar after its display time
+		ToastFlyScale = 0.35,
 		-- The RELEASE hint (spec §4.1): fades in over the jump wheel after this long a Charging hold, for the
 		-- first few Bursts of the session only.
 		ReleaseHintAfter = 1.5,
@@ -1989,7 +2389,7 @@ local Tuning = {
 		DropAltitudes = { 300, 1000, 3000, 10000 },
 		TestSmashSpeed = 400, -- Studio only: F4 smashes the ground under the player at this speed
 		WorldSeed = 0, -- 0 = a new seed per server (printed at start); set it to reproduce a layout
-		PowerPresets = { 1, 6, 11, 18, 25 },
+		LevelStep = 10, -- the F2 panel's Level +/- buttons (Studio only) jump this many levels
 		ShowControlsHud = true, -- tester cheat sheet in every build; turn off when milestone 7 hints land
 	},
 }

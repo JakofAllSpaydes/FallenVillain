@@ -28,6 +28,8 @@
 local Tuning = require(game:GetService("ReplicatedStorage").Shared.Tuning)
 
 local CameraEffects = require(script.Parent.Parent.Camera.CameraEffects)
+local Blaster = require(script.Parent.Parent.Combat.Blaster)
+local Blast = require(script.Parent.Parent.Movement.Blast)
 local Controller = require(script.Parent.Parent.Movement.Controller)
 local JumpCheck = require(script.Parent.Parent.Movement.JumpCheck)
 local Punch = require(script.Parent.Parent.Movement.Punch)
@@ -93,7 +95,8 @@ local function scaled(entry: Entry, speed: number?): Entry
 			result = table.clone(entry)
 		end
 		local I = Tuning.Impact
-		result.radius = (entry.radius or 1) * (I.RadiusBase + speed / I.RadiusSpeedDivisor) * I.PlainPoundScale
+		local peak = if ctx then 1 + ctx.FallPeak / I.PeakDivisor * I.PeakRadiusBonus else 1
+		result.radius = (entry.radius or 1) * (I.RadiusBase + speed / I.RadiusSpeedDivisor) * I.PlainPoundScale * peak
 	end
 	-- pitchSteps: semitone steps indexed by the event's speed (a note index); wraps, climbing an octave per wrap.
 	if entry.pitchSteps and speed then
@@ -233,6 +236,42 @@ function Juice.start()
 	end)
 	JumpCheck.TierReached:Connect(function(held)
 		Juice.fire("BurstTier", nil, nil, held)
+	end)
+	-- The blast (spec §15 milestone 6): charge, tiers, the shot leaving, hits by strength, the beam on and off.
+	Blast.ChargeStarted:Connect(function(held)
+		Juice.fire("BlastCharge", nil, nil, held)
+	end)
+	Blast.TierReached:Connect(function(held)
+		Juice.fire("BlastTier", nil, nil, held)
+	end)
+	Blast.Fired:Connect(function(kind)
+		if kind == "Fizzle" then
+			Juice.fire("Fizzle")
+		end
+	end)
+	Blaster.Shot:Connect(function(origin)
+		Juice.fire("Shot", origin)
+	end)
+	Blaster.Hit:Connect(function(position, strength)
+		Juice.fire("BlastHit", position, nil, nil, strength)
+	end)
+	Blaster.BeamTick:Connect(function(position)
+		Juice.fire("BeamHit", position)
+	end)
+	Blaster.BeamStarted:Connect(function(origin)
+		Juice.fire("BeamStart", origin)
+	end)
+	Blaster.BeamEnded:Connect(function(origin)
+		Juice.fire("BeamEnd", origin)
+	end)
+	Blaster.ChainStarted:Connect(function(origin)
+		Juice.fire("ChainStart", origin)
+	end)
+	Blaster.SpiritThrown:Connect(function(origin, strength)
+		Juice.fire("SpiritThrow", origin, nil, nil, strength)
+	end)
+	Blaster.SpiritLanded:Connect(function(position, strength)
+		Juice.fire("SpiritHit", position, nil, nil, strength)
 	end)
 	Controller.Bounced:Connect(function(position, speed)
 		Juice.fire("Bounce", position, nil, nil, speed)

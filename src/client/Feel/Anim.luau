@@ -26,6 +26,7 @@ local Shared = game:GetService("ReplicatedStorage").Shared
 local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
 
+local Blast = require(script.Parent.Parent.Movement.Blast)
 local Controller = require(script.Parent.Parent.Movement.Controller)
 local JumpCheck = require(script.Parent.Parent.Movement.JumpCheck)
 local MathUtil = require(script.Parent.Parent.Movement.MathUtil)
@@ -435,6 +436,23 @@ local function buildTargets(ctx: Types.Ctx, now: number, dt: number)
 		addNoise("RShoulder", now, A.WindTremble * tiers, 1, 3)
 	end
 
+	-- Blast charge: both hands drawn to the hip over the charge time, trembling as the tiers climb; the beam
+	-- braces both arms forward while it fires.
+	local blastHold = Blast.cappedHold(ctx)
+	if blastHold then
+		local basic = math.clamp(blastHold / Tuning.Blast.ChargeTime, 0, 1)
+		local strengths = Tuning.Blast.HoldStrengths
+		local tiers = math.clamp(blastHold / strengths[#strengths][1], 0, 1)
+		-- Past the fourth circle the hands go up to hold the spirit bomb.
+		local spirit = if Blast.kindFor(blastHold) == "Spirit" then 1 else 0
+		addPose(P.BlastCharge, basic * (1 - spirit))
+		addPose(P.BlastSpirit, spirit)
+		addNoise("LShoulder", now, A.WindTremble * tiers, 1, 3)
+	end
+	if ctx.BeamUntil > now then
+		addPose(P.BlastFire, 1)
+	end
+
 	addLook(ctx)
 	addLean(ctx, dt)
 
@@ -447,6 +465,7 @@ local function buildTargets(ctx: Types.Ctx, now: number, dt: number)
 	addPose(P.Recoil, kickValue("Recoil", now))
 	addPose(P.Through, kickValue("Through", now))
 	addPose(P.BurstKick, kickValue("BurstKick", now))
+	addPose(P.BlastShot, kickValue("BlastShot", now))
 end
 
 -- Every channel follows its target on a damped spring, substepped for stability at the snap frequency.
@@ -521,6 +540,14 @@ function Anim.start()
 		if kind == "Dash" or kind == "Rocket" then
 			snap()
 			kick("PunchOut", 1, A.PunchOutTime)
+		end
+	end)
+	Blast.Fired:Connect(function(kind)
+		if kind == "Shot" then
+			snap()
+			kick("BlastShot", 1, A.BlastShotTime)
+		elseif kind == "Beam" then
+			snap()
 		end
 	end)
 	-- Hitting something that holds folds the body back by how hard it resisted; a bounce off a wall the same.

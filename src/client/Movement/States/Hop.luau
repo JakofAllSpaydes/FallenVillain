@@ -10,6 +10,7 @@ local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
 local MathUtil = require(script.Parent.Parent.MathUtil)
 local Punch = require(script.Parent.Parent.Punch)
+local Blast = require(script.Parent.Parent.Blast)
 
 local Hop = { Punch = "Air" }
 
@@ -36,6 +37,7 @@ local function hop(ctx: Types.Ctx, pressedAt: number, charge: number)
 	local height = (T.Height + (T.ChargedHeight - T.Height) * charge)
 		* chainMult
 		* Punch.slow(ctx, Tuning.Punch.ChargeHopMult)
+		* Blast.slow(ctx, Tuning.Blast.ChargeHopMult)
 
 	-- Perfect bunny hop: a chain hop keeps the speed you landed with (or are sliding with) plus a bonus and a
 	-- forward kick, so a good rhythm builds speed. Capped by Tech.MaxCarrySpeed.

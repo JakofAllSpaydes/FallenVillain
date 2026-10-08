@@ -19,27 +19,22 @@ local ControlsHud = {}
 type Row = { Keys: { string }, Label: string }
 type Section = { Title: string?, Rows: { Row } }
 
+-- Compact (review note at milestone 6: 40% smaller, no move/look rows, tap and hold combined per button).
 local SECTIONS: { Section } = {
 	{
 		Title = "CONTROLS",
 		Rows = {
-			{ Keys = { "W", "A", "S", "D" }, Label = "Move" },
-			{ Keys = { "MOUSE" }, Label = "Look" },
-			{ Keys = { "SPACE" }, Label = "Hop" },
-			{ Keys = { "HOLD", "SPACE" }, Label = "Burst" },
-			{ Keys = { "AIR", "SPACE" }, Label = "Dive" },
-			{ Keys = { "LET GO", "SPACE" }, Label = "Swoop" },
-			{ Keys = { "TAP", "LMB" }, Label = "Punch" },
-			{ Keys = { "HOLD", "LMB" }, Label = "Charge punch" },
+			{ Keys = { "TAP / HOLD", "SPACE" }, Label = "Hop / Burst" },
+			{ Keys = { "AIR", "SPACE" }, Label = "Dive / Swoop" },
+			{ Keys = { "TAP / HOLD", "LMB" }, Label = "Punch / Charge" },
+			{ Keys = { "TAP / HOLD", "RMB" }, Label = "Blast / Charge" },
 		},
 	},
-	-- Kept short on purpose (review note at milestone 5): the three tricks worth teaching; the rest are found.
 	{
 		Title = "TRICKS",
 		Rows = {
 			{ Keys = { "DIVE", "LAND" }, Label = "Slide" },
 			{ Keys = { "LMB", "AT GROUND" }, Label = "Rocket jump" },
-			{ Keys = { "SPACE", "LMB" }, Label = "Jump punch" },
 		},
 	},
 }
@@ -54,6 +49,7 @@ local TOUCH_KEYS: { [string]: string } = {
 	MOUSE = "DRAG",
 	SPACE = "JUMP",
 	LMB = "PUNCH",
+	RMB = "BLAST",
 }
 
 local function touchKeys(keys: { string }): { string }
@@ -71,6 +67,7 @@ end
 local ACTION_CHIPS = {
 	HOLD = true,
 	TAP = true,
+	["TAP / HOLD"] = true,
 	AIR = true,
 	GROUND = true,
 	SWOOP = true,
@@ -94,7 +91,8 @@ local LIVE_SIZE = 18
 local CHIP_HEIGHT = 34
 local ROW_GAP = 6
 local REFERENCE_HEIGHT = 1080
-local MIN_SCALE, MAX_SCALE = 0.6, 1.25
+local HUD_SCALE = 0.75 -- review notes at milestone 6: 40% smaller, then 25% back up
+local MIN_SCALE, MAX_SCALE = 0.6 * HUD_SCALE, 1.25 * HUD_SCALE
 local REFRESH_INTERVAL = 0.1
 local KEY_COLOR = Color3.fromRGB(245, 245, 245)
 local KEY_TEXT = Color3.fromRGB(30, 30, 35)
@@ -199,7 +197,7 @@ function ControlsHud.start()
 	scale.Parent = gui
 	local function rescale()
 		local height = workspace.CurrentCamera.ViewportSize.Y
-		scale.Scale = math.clamp(height / REFERENCE_HEIGHT, MIN_SCALE, MAX_SCALE)
+		scale.Scale = math.clamp(height / REFERENCE_HEIGHT * HUD_SCALE, MIN_SCALE, MAX_SCALE)
 	end
 	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
 	rescale()

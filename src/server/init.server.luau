@@ -47,6 +47,9 @@ for _, player in Players:GetPlayers() do
 	onPlayer(player)
 end
 
+-- The shared day clock (World/DayCycle): every client counts the day from this server time.
+workspace:SetAttribute("DayCycleStart", workspace:GetServerTimeNow())
+
 Presence.start()
 DestructionAuthority.start()
 WorldGen.generate()

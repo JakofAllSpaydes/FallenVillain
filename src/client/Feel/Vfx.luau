@@ -50,8 +50,6 @@ local beamTop: Attachment
 local light: PointLight
 local trails: { Trail } = {}
 local trailRoot: BasePart? = nil
-local trailOverride: { Attachment }? = nil -- wingtip attachments from Feel/Wings, when it has built them
-local trailAttached: { Attachment }? = nil
 local dust: ParticleEmitter
 local dustAttachment: Attachment
 local sparks: ParticleEmitter
@@ -305,23 +303,8 @@ local function attachTrails(root: BasePart)
 	trailRoot = root
 end
 
--- The wings hang the trails from their tips: (left 0, left 1, right 0, right 1).
-function Vfx.setTrailAttachments(l0: Attachment, l1: Attachment, r0: Attachment, r1: Attachment)
-	trailOverride = { l0, l1, r0, r1 }
-end
-
 local function updateTrails(ctx: any)
-	local override = trailOverride
-	if override then
-		if trailAttached ~= override then
-			trailAttached = override
-			for index, trail in trails do
-				trail.Attachment0 = override[index * 2 - 1]
-				trail.Attachment1 = override[index * 2]
-				trail.Parent = override[index * 2 - 1].Parent
-			end
-		end
-	elseif ctx and trailRoot ~= ctx.Root then
+	if ctx and trailRoot ~= ctx.Root then
 		attachTrails(ctx.Root)
 	end
 	local on = ctx ~= nil and (layers:get("Trails") > 0.01 or driven.Trails >= Tuning.Vfx.TrailSpeedOn)

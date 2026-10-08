@@ -1,15 +1,18 @@
 --!strict
 -- Jump charge rings above the character's head: the first ring is the hop charge (full at Hop.HoldTime, where
--- Charging starts), then one ring per Burst tier, ending at each of Burst.Tiers and finally at the longest hold
--- in Burst.HoldHeights. All gold once the Burst has reached your Power's ceiling. Fades out on release.
+-- Charging starts), then one ring per Burst circle (shared/Progression.luau), ending at each of Burst.Tiers and
+-- finally at the longest hold in Burst.HoldHeights. Circles the level hasn't unlocked show as dim locked
+-- rings; everything turns gold once the hold has reached the last unlocked one. Fades out on release.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
-local Tuning = require(game:GetService("ReplicatedStorage").Shared.Tuning)
+local Shared = game:GetService("ReplicatedStorage").Shared
+local Progression = require(Shared.Progression)
+local Tuning = require(Shared.Tuning)
+
 local Controller = require(script.Parent.Parent.Movement.Controller)
 local JumpCheck = require(script.Parent.Parent.Movement.JumpCheck)
-local Burst = require(script.Parent.Parent.Movement.States.Burst)
 local ChargeRings = require(script.Parent.ChargeRings)
 
 local JumpWheel = {}
@@ -18,12 +21,10 @@ local gui: BillboardGui
 local rings: ChargeRings.ChargeRings
 
 local function ringEnds(): { number }
-	local B = Tuning.Burst
 	local ends = { Tuning.Hop.HoldTime }
-	for _, tier in B.Tiers do
-		table.insert(ends, tier)
+	for _, circleEnd in Progression.circleEnds("Burst") do
+		table.insert(ends, circleEnd)
 	end
-	table.insert(ends, B.HoldHeights[#B.HoldHeights][1])
 	return ends
 end
 
@@ -39,8 +40,8 @@ local function update(dt: number)
 	gui.Enabled = true
 
 	local held = JumpCheck.held()
-	local maxed = held ~= nil and Burst.heightForHold(held) >= Burst.ceiling(ctx.Power)
-	rings:update(dt, held, ringEnds(), Tuning.Hop.TapTime, maxed)
+	local maxed = held ~= nil and held >= Progression.holdCap("Burst", ctx.Level)
+	rings:update(dt, held, ringEnds(), Tuning.Ui.WheelShowAfter, maxed, 1 + Progression.circles(ctx.Level))
 end
 
 function JumpWheel.start()

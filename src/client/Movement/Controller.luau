@@ -19,7 +19,10 @@ local Signal = require(Shared.Signal)
 local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
 
+local Progression = require(Shared.Progression)
+
 local Aim = require(script.Parent.Aim)
+local Blast = require(script.Parent.Blast)
 local Input = require(script.Parent.Input)
 local JumpCheck = require(script.Parent.JumpCheck)
 local MathUtil = require(script.Parent.MathUtil)
@@ -59,7 +62,6 @@ Controller.BrokeThrough = Signal.new() :: Signal.Signal<Model, Vector3, number>
 -- reveal (Feel/Damage) cracks, leans and shudders it from this.
 Controller.Damaged = Signal.new() :: Signal.Signal<Model, Vector3, number, number>
 
-local persistentPower = 1
 local recentHits: { [Model]: number } = {} -- last contact time per destructible, for Smash.RehitTime
 -- Damage this client expects it has dealt each destructible, to predict whether a contact breaks through or
 -- bounces (the server decides the real break). Destruction resets it on every break and rebuild.
@@ -191,9 +193,11 @@ local function reflect(ctx: Types.Ctx, normal: Vector3): boolean
 	return true
 end
 
-local function smashRadius(speed: number): number
+-- The smash radius for a contact speed, grown by the fall peak (Impact.PeakRadiusBonus per PeakDivisor studs:
+-- a drop from space explodes big even without a punch).
+local function smashRadius(speed: number, fallPeak: number): number
 	local I = Tuning.Impact
-	return I.RadiusBase + speed / I.RadiusSpeedDivisor
+	return (I.RadiusBase + speed / I.RadiusSpeedDivisor) * (1 + fallPeak / I.PeakDivisor * I.PeakRadiusBonus)
 end
 
 -- The attack multiplier on a contact's hits: a dive, and a punch held or just fired (spec §15 milestone 4).
@@ -250,7 +254,7 @@ local function contactDestructible(ctx: Types.Ctx, model: Model, position: Vecto
 	local effort = speed * resistance
 	if ctx.State == "Dive" then
 		trace(ctx, if breaks then "smashed through a structure" else "smashed into a structure")
-		Controller.Smashed:Fire(position, speed, smashRadius(speed), model, force, effort)
+		Controller.Smashed:Fire(position, speed, smashRadius(speed, ctx.FallPeak), model, force, effort)
 	else
 		trace(ctx, if breaks then "broke through a destructible" else "hit a destructible")
 		Controller.HitObject:Fire(model, position, speed, force, effort)
@@ -376,6 +380,7 @@ local function step(dt: number)
 
 	ctx.Now = os.clock()
 	ctx.Input = Input.snapshot()
+	ctx.Level = Progression.levelOf(ctx.Player)
 	Aim.update(ctx)
 	if appliedScale > 1e-3 then
 		ctx.Velocity = appliedTilt:Inverse() * (ctx.Root.AssemblyLinearVelocity / appliedScale)
@@ -412,10 +417,18 @@ local function step(dt: number)
 		transition(ctx, punchState, punchPayload)
 		return
 	end
+	Blast.update(ctx, dt)
 	local nextState, payload = state.update(ctx, dt)
 	if nextState then
 		transition(ctx, nextState, payload)
 		return
+	end
+	-- The beam braces against the fall while it fires (spec §3: the laser slowed the fall).
+	if ctx.BeamUntil > ctx.Now then
+		local vy = ctx.Velocity:Dot(ctx.Up)
+		if vy < 0 then
+			ctx.Velocity -= ctx.Up * vy * (1 - math.exp(-Tuning.Blast.FallBrake * dt))
+		end
 	end
 
 	applyCeiling(ctx)
@@ -471,7 +484,14 @@ local function step(dt: number)
 		elseif ctx.State == "Dive" and speed >= Tuning.Smash.MinSpeed then
 			-- The ground smash (spec §4.8): the touchdown juice plays through Landing/Slide; this only reports it.
 			trace(ctx, "smashed the ground")
-			Controller.Smashed:Fire(ground.Position, speed, smashRadius(speed), nil, contactForce(ctx), speed)
+			Controller.Smashed:Fire(
+				ground.Position,
+				speed,
+				smashRadius(speed, ctx.FallPeak),
+				nil,
+				contactForce(ctx),
+				speed
+			)
 		end
 	end
 	if ground then
@@ -545,14 +565,18 @@ local function attach(character: Model)
 		BurstAscentTime = 0,
 		BurstHeld = 0,
 		HopChain = 0,
+		ApexAt = -math.huge,
 		LastLandTime = -math.huge,
 		LandVelocity = Vector3.zero,
 		SwoopReadyAt = 0,
 		FallPeak = 0,
-		Power = persistentPower,
+		Level = Progression.levelOf(Players.LocalPlayer),
 		PunchHold = nil,
 		PunchReadyAt = 0,
 		PunchFiredAt = -math.huge,
+		BlastHold = nil,
+		BlastReadyAt = 0,
+		BeamUntil = 0,
 		LookFollowAfter = 0,
 		TimeScale = 1,
 	}
@@ -561,7 +585,6 @@ local function attach(character: Model)
 	Controller.ctx = ctx
 
 	humanoid.Died:Connect(function()
-		persistentPower = ctx.Power
 		if Controller.ctx == ctx then
 			Controller.ctx = nil
 		end
@@ -597,7 +620,7 @@ function Controller.testSmash()
 		Controller.Smashed:Fire(
 			ground.Position,
 			speed,
-			smashRadius(speed),
+			smashRadius(speed, ctx.FallPeak),
 			Destructibles.modelOf(ground.Instance),
 			Tuning.Smash.DiveMult,
 			speed
@@ -605,19 +628,20 @@ function Controller.testSmash()
 	end
 end
 
--- Dev panel hook: set the Power level.
-function Controller.setPower(power: number)
-	persistentPower = power
-	if Controller.ctx then
-		Controller.ctx.Power = power
-	end
-end
-
 function Controller.start()
 	Input.start()
 	-- A rocket punch pounds the surface it fires off, with the punch's force; the strength stands in for speed.
 	Punch.GroundPound:Connect(function(position, strength, model)
-		Controller.Smashed:Fire(position, strength, smashRadius(strength), model, Tuning.Smash.PunchMult, strength)
+		local ctx = Controller.ctx
+		local peak = if ctx then ctx.FallPeak else 0
+		Controller.Smashed:Fire(
+			position,
+			strength,
+			smashRadius(strength, peak),
+			model,
+			Tuning.Smash.PunchMult,
+			strength
+		)
 	end)
 	local player = Players.LocalPlayer
 	player.CharacterAdded:Connect(attach)

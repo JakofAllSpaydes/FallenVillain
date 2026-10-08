@@ -71,7 +71,9 @@ local function updatePreview(ctx: any, dt: number)
 	local speed = ctx.Velocity.Magnitude
 	local shown = P.States[ctx.State] == true and speed >= S.MinSpeed
 	local punching = ctx.Input.PrimaryHeld or ctx.Now < ctx.PunchFiredAt + S.PunchWindow
-	local radius = (I.RadiusBase + speed / I.RadiusSpeedDivisor) * (if punching then 1 else I.PlainPoundScale)
+	local radius = (I.RadiusBase + speed / I.RadiusSpeedDivisor)
+		* (if punching then 1 else I.PlainPoundScale)
+		* (1 + ctx.FallPeak / I.PeakDivisor * I.PeakRadiusBonus)
 	local strength = math.clamp((speed - S.MinSpeed) / math.max(P.FullSpeed - S.MinSpeed, 1e-3), 0, 1)
 	local hot = if ctx.AimTarget then ctx.AimMagnet else 0
 	local alpha = if shown then P.MinAlpha + (P.MaxAlpha - P.MinAlpha) * strength + P.HotBoost * hot else 0
@@ -151,7 +153,7 @@ local function update(dt: number)
 	CameraEffects.drive("distanceDrive", -zoom - F.Zoom * fall)
 	CameraEffects.drive("shakeDrive", S.Shake * saturate(over, S.ShakeRef) + F.Shake * fall, S.ShakeFreq)
 	Audio.drive("Rush", rush, S.RushPitch * rush)
-	-- Glide energy running low: the wings creak (spec §4.5); Feel/Wings shakes them from the same number.
+	-- Glide energy running low: the wings creak (spec §4.5).
 	local E = Tuning.GlideEnergy
 	local strain = if ctx.State == "Glide" and ctx.GlideEnergy < E.StrainThreshold
 		then 1 - ctx.GlideEnergy / math.max(E.StrainThreshold, 1e-3)
@@ -165,11 +167,18 @@ local function update(dt: number)
 	Vfx.drive("Trails", lines)
 	Vfx.drive("Embers", heat)
 
-	-- Fist glow.
+	-- Fist glow, from the punch charge or the blast charge, whichever is further along.
 	local fist = 0
 	if punchHold then
 		local basic = math.clamp(punchHold / Tuning.Punch.ChargeTime, 0, 1)
 		fist = D.FistBaseShare * basic + (1 - D.FistBaseShare) * punchProgress
+	end
+	local blastHold = ctx.BlastHold
+	if blastHold then
+		local strengths = Tuning.Blast.HoldStrengths
+		local basic = math.clamp(blastHold / Tuning.Blast.ChargeTime, 0, 1)
+		local progress = holdProgress(blastHold, strengths[#strengths][1])
+		fist = math.max(fist, D.FistBaseShare * basic + (1 - D.FistBaseShare) * progress)
 	end
 	Vfx.drive("Fist", fist)
 

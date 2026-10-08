@@ -1,9 +1,12 @@
 --!strict
--- Burst (spec §3, §4.2–4.3): straight up. The Space hold picks a target height from Burst.HoldHeights, capped by
--- the highest Burst Power allows; the launch velocity is solved to reach it. No gravity for the ignition, then
--- Burst gravity. No steering at first, then a slow drift. Hands over to Hang once the climb has nearly stopped.
+-- Burst (spec §3, §4.2–4.3; §15 milestone 6): straight up. The Space hold picks a target height from
+-- Burst.HoldHeights, the hold capped by the level's unlocked circles and the height scaled by its power
+-- multiplier (shared/Progression.luau); the launch velocity is solved to reach it. No gravity for the ignition,
+-- then Burst gravity. No steering at first, then a slow drift. Hands over to Hang once the climb has nearly
+-- stopped.
 
 local Shared = game:GetService("ReplicatedStorage").Shared
+local Progression = require(Shared.Progression)
 local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
 local MathUtil = require(script.Parent.Parent.MathUtil)
@@ -21,17 +24,11 @@ function Burst.predict(velocity: number): (number, number)
 	return B.IgnitionTime + velocity / g, velocity * B.IgnitionTime + velocity * velocity / (2 * g)
 end
 
--- Highest Burst for a Power level.
-function Burst.ceiling(power: number): number
-	local B = Tuning.Burst
-	local full = math.min(B.BaseVelocity + B.VelocityPerPower * (power - 1), B.MaxVelocity)
-	local _, height = Burst.predict(full)
-	return height
-end
-
--- Target height for a hold of `seconds` (Burst.HoldHeights).
-function Burst.heightForHold(seconds: number): number
-	return MathUtil.holdCurve(Tuning.Burst.HoldHeights, seconds)
+-- Target height for a hold of `seconds` (Burst.HoldHeights) at `level`: the hold capped by the unlocked
+-- circles, the height scaled by the level's power.
+function Burst.heightForHold(seconds: number, level: number): number
+	local capped = Progression.capHold("Burst", seconds, level)
+	return MathUtil.holdCurve(Tuning.Burst.HoldHeights, capped) * Progression.power(level)
 end
 
 -- Launch velocity that reaches `height`: solves v·Ignition + v²/2g = height.
@@ -44,7 +41,7 @@ end
 function Burst.enter(ctx: Types.Ctx, payload: any)
 	local B = Tuning.Burst
 	local held = if payload ~= nil and payload.Held then payload.Held else 0
-	local height = math.min(Burst.heightForHold(held), Burst.ceiling(ctx.Power))
+	local height = Burst.heightForHold(held, ctx.Level)
 	local velocity = velocityFor(height)
 	ctx.BurstHeld = held
 	ctx.BurstCharge = math.clamp(height / B.FeelFullHeight, B.MinFeelCharge, 1)

@@ -54,9 +54,13 @@ local function partsOf(model: Model): { BasePart }
 end
 
 local function setHidden(model: Model, hidden: boolean)
-	for _, part in partsOf(model) do
-		part.LocalTransparencyModifier = if hidden then 1 else 0
-		part.CanQuery = not hidden
+	for _, descendant in model:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			descendant.LocalTransparencyModifier = if hidden then 1 else 0
+			descendant.CanQuery = not hidden
+		elseif descendant:IsA("Light") then
+			descendant.Enabled = not hidden -- the landmarks' night lights go out with them
+		end
 	end
 end
 
@@ -133,6 +137,7 @@ local function breakOne(
 	radius: number,
 	contact: number,
 	near: boolean,
+	quiet: boolean,
 	cash: number?,
 	combo: number
 )
@@ -149,20 +154,22 @@ local function breakOne(
 	hidden[model] = true
 	Controller.resetDamage(model)
 	local position = pivot.Position
-	local mods = breakMods(model, position)
-	-- Every family the prefab is made of plays (glass shatters over the stone crumble), big objects add
-	-- BreakBig on top, and a car may pop a moment later (spec §4.12).
-	for _, family in entry.Families do
-		Juice.fire(FAMILY_EVENT[family] or "BreakStone", position, nil, nil, contact, mods)
-	end
-	if entry.Value >= Tuning.Smash.BigBreakValue then
-		Juice.fire("BreakBig", position, nil, nil, contact, mods)
-	end
-	if entry.PopChance and math.random() < entry.PopChance then
-		task.delay(0.5 + math.random() * 0.5, Juice.fire, "CarPop", position)
-	end
-	if near then
-		fling(model, entry, origin, radius, contact, os.clock())
+	if not quiet then
+		local mods = breakMods(model, position)
+		-- Every family the prefab is made of plays (glass shatters over the stone crumble), big objects add
+		-- BreakBig on top, and a car may pop a moment later (spec §4.12).
+		for _, family in entry.Families do
+			Juice.fire(FAMILY_EVENT[family] or "BreakStone", position, nil, nil, contact, mods)
+		end
+		if entry.Value >= Tuning.Smash.BigBreakValue then
+			Juice.fire("BreakBig", position, nil, nil, contact, mods)
+		end
+		if entry.PopChance and math.random() < entry.PopChance then
+			task.delay(0.5 + math.random() * 0.5, Juice.fire, "CarPop", position)
+		end
+		if near then
+			fling(model, entry, origin, radius, contact, os.clock())
+		end
 	end
 	if cash then
 		local prefab = model:GetAttribute(Destructibles.PrefabAttribute)
@@ -279,16 +286,19 @@ function Destruction.start()
 			local isLocal = player == Players.LocalPlayer
 			local ctx = Controller.ctx
 			local near = isLocal or (ctx ~= nil and (ctx.Root.Position - origin).Magnitude <= C.RemoteRange)
-			for _, entry in breaks do
+			-- A titanic broadcast (the spirit bomb) plays feel for the nearest MaxBreakFeels only; the rest just
+			-- vanish and pay. The list arrives sorted by wave delay, nearest first.
+			for index, entry in breaks do
 				local model = entry.Model
 				if not model then
 					continue -- not streamed in here
 				end
 				local cash = if isLocal then entry.Cash else nil
+				local quiet = index > C.MaxBreakFeels
 				if entry.Delay <= 0 then
-					breakOne(model, origin, radius, contact, near, cash, entry.Combo)
+					breakOne(model, origin, radius, contact, near, quiet, cash, entry.Combo)
 				else
-					task.delay(entry.Delay, breakOne, model, origin, radius, contact, near, cash, entry.Combo)
+					task.delay(entry.Delay, breakOne, model, origin, radius, contact, near, quiet, cash, entry.Combo)
 				end
 			end
 		end)

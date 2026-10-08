@@ -93,6 +93,7 @@ local function payout(player: Player, object: Object, fallPeak: number, now: num
 	local comboMult = 1 + C.MultPerHit * math.min(data.Combo, C.MaxCount)
 	local cash = object.Entry.Value * object.Scale * altitudeMult * comboMult
 	PlayerData.addCash(player, cash)
+	PlayerData.addXp(player, cash * Tuning.Progression.XpPerCash)
 	return cash, data.Combo
 end
 
@@ -183,12 +184,23 @@ local function damageRadius(
 	if direct and objects[direct] then
 		table.insert(candidates, direct)
 	end
-	for _, part in workspace:GetPartBoundsInRadius(origin, radius, overlap) do
-		local model = Destructibles.modelOf(part)
-		if model then
-			table.insert(candidates, model)
+	if radius > Tuning.Net.OverlapRadiusLimit then
+		-- A huge smash (the spirit bomb): the part query would truncate, so scan every object by distance.
+		for model, object in objects do
+			if not object.Broken and model.Parent and (model:GetPivot().Position - origin).Magnitude <= radius then
+				table.insert(candidates, model)
+			end
+		end
+	else
+		for _, part in workspace:GetPartBoundsInRadius(origin, radius, overlap) do
+			local model = Destructibles.modelOf(part)
+			if model then
+				table.insert(candidates, model)
+			end
 		end
 	end
+	-- The wave crosses the radius at WaveSpeed, but never slower than MaxWaveTime end to end.
+	local waveSpeed = math.max(Tuning.Impact.WaveSpeed, radius / math.max(Tuning.Impact.MaxWaveTime, 1e-3))
 	for _, model in candidates do
 		local object = objects[model]
 		if not object or object.Broken or seen[model] then
@@ -203,7 +215,7 @@ local function damageRadius(
 			local cash, combo = payout(player, object, fallPeak, now)
 			table.insert(breaks, {
 				Model = model,
-				Delay = distance / Tuning.Impact.WaveSpeed,
+				Delay = distance / waveSpeed,
 				Cash = cash,
 				Combo = combo,
 			})
@@ -245,13 +257,18 @@ local function handleContact(player: Player, root: BasePart, item: any)
 	end
 	local S, I, N = Tuning.Smash, Tuning.Impact, Tuning.Net
 	local position = item.Position
-	local speed = validNumber(item.Speed, S.MinSpeed, N.MaxSpeed)
+	local speedCap = if item.Kind == "Blast" then N.MaxBlastStrength else N.MaxSpeed
+	local speed = validNumber(item.Speed, S.MinSpeed, speedCap)
 	if typeof(position) ~= "Vector3" or not speed then
 		return
 	end
-	-- The replicated character trails a fast player by a few frames, so the allowance grows with speed.
+	-- The replicated character trails a fast player by a few frames, so the allowance grows with speed; a
+	-- blast lands anywhere within its range.
 	local error = (position - root.Position).Magnitude
-	if error > N.MaxPositionError + speed * N.PositionLag then
+	local allowance = if item.Kind == "Blast"
+		then N.MaxPositionError + Tuning.Blast.MaxRange
+		else N.MaxPositionError + speed * N.PositionLag
+	if error > allowance then
 		if RunService:IsStudio() and Tuning.Dev.TraceMovement then
 			warn(string.format("[FALL] contact rejected: %.0f studs from the character at speed %.0f", error, speed))
 		end
@@ -285,12 +302,23 @@ local function handleContact(player: Player, root: BasePart, item: any)
 	if item.Kind == "Smash" then
 		-- A dive into the ground or a structure: everything in the speed radius takes the hit; a plain landing
 		-- gets PlainPoundScale of it, a punch (a rocket punch's pound, or a punch held into the dive) all of it.
-		radius = (I.RadiusBase + speed / I.RadiusSpeedDivisor) * (if punching then 1 else I.PlainPoundScale)
+		-- The fall peak grows both the radius and the hits (review note: a drop from space must explode big).
+		local peak = fallPeak / I.PeakDivisor
+		radius = (I.RadiusBase + speed / I.RadiusSpeedDivisor)
+			* (if punching then 1 else I.PlainPoundScale)
+			* (1 + peak * I.PeakRadiusBonus)
+		hits *= 1 + peak * S.PeakHitsBonus
 	elseif item.Kind == "Hit" and touched then
 		-- Flying into one object: it takes the hit; a punch also smashes a share of a dive's radius around it.
 		radius = if punching
 			then (I.RadiusBase + speed / I.RadiusSpeedDivisor) * S.PunchRadiusScale
 			else S.ContactRadius
+	elseif item.Kind == "Blast" then
+		-- A shot landing or a beam tick: its strength stands in for speed; the radius grows with it.
+		local L = Tuning.Blast
+		radius = L.Radius + speed / L.RadiusStrengthDivisor
+		hits = speed / S.SpeedPerHit
+		punching = false
 	else
 		return
 	end

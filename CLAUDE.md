@@ -2,7 +2,7 @@
 
 - Design spec: `docs/SPEC.md`. Build order and working rules are in §14; follow milestones in order. §15 records decisions made during reviews and overrides earlier sections where they disagree; add to it when a review changes the design.
 - Rojo 7 project (`default.project.json`), Luau, tools pinned in `aftman.toml`.
-- Every tunable number goes in `src/shared/Tuning.luau`, never inline. Joint poses live in `Tuning.Poses` (skipped by the F2 panel); texture asset ids in `Tuning.Vfx`.
+- Every tunable number goes in `src/shared/Tuning.luau`, never inline. Levels, circles and the power multiplier are `shared/Progression.luau` over `Tuning.Progression`; the server owns XP and levels (`server/PlayerData.luau`) and clients read them as Player attributes. Joint poses live in `Tuning.Poses` (skipped by the F2 panel); texture asset ids in `Tuning.Vfx`.
 - Every effect goes through `FeelTable`, never called directly from a movement state. Event-driven effects are FeelTable entries (`Feel/Juice.luau` documents the keys, including `curve`, `bySpeed` and `minHeld`); anything that follows live speed or charge every frame goes in `Feel/Drivers.luau` and writes a driven layer.
 - Character animation is `Feel/Anim.luau`: stock Roblox clips for locomotion plus pose offsets composed into each joint's `Transform` (the rig's joints are `AnimationConstraint`s on current rigs; `C0` is read-only there). R15 first, R6 fallback. Never touch the Humanoid's default Animate script elsewhere.
 - Juice must be industry-standard, not placeholder-grade: soft textures over primitives, rings over filled discs, trauma shake with rotation, eased kicks. VFX textures are generated and uploaded as image assets (see spec §15 milestone 3b); regenerate and re-upload rather than approximate with parts.
@@ -17,8 +17,8 @@
 - The world is a globe (spec §15 milestone 3a): the surface is an analytic sphere (`shared/Globe.luau`), never a collider; every ground query goes through `Globe.raycast`; "up" is `ctx.Up`, never world Y; characters don't physically collide with anything. The visible terrain shell is generated from `Planet.Radius`/`Center` in Studio, not dragged.
 - Destructible templates are Models with the `Destructible` tag and a `Prefab` attribute naming their `Destructibles.Catalog` entry, pivot at the base, Y up; their parts are their chunks (anchored, `CanQuery` on, `CanCollide` off). Build them in Studio; WorldGen clones them under `workspace.World.Destructibles`.
 - Stop at the end of each milestone for review in Studio. Don't take screenshots or videos; when something needs visual or feel verification, ask the user to check it in Studio.
-- Touch devices get `Movement/TouchControls.luau` (thumbstick, drag-look, JUMP and PUNCH buttons), which feeds the same `Input` snapshot as the keyboard. New inputs need a touch mapping there and a `TOUCH_KEYS` entry in the cheat sheet. Test the layout with Studio's device emulator.
-- Keep the tester cheat sheet current: every new *input* gets a row in `SECTIONS` in `src/client/UI/ControlsHud.luau` in the same change (keycap or action chips plus a label of one or two words, no numbers). Tricks stay a short list of three (review decision at milestone 5); don't add every mechanic.
+- Touch devices get `Movement/TouchControls.luau` (thumbstick, drag-look, JUMP, PUNCH and BLAST buttons), which feeds the same `Input` snapshot as the keyboard. New inputs need a touch mapping there and a `TOUCH_KEYS` entry in the cheat sheet. Test the layout with Studio's device emulator.
+- Keep the tester cheat sheet current: every new *input* gets a row in `SECTIONS` in `src/client/UI/ControlsHud.luau` in the same change (keycap or action chips plus a label of one or two words, no numbers). Tricks stay a short list of two or three (review decisions at milestones 5 and 6); don't add every mechanic. Tap and hold on one button share a row ("TAP / HOLD").
 
 ## Performance rules
 

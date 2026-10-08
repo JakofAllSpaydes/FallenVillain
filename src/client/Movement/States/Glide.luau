@@ -7,6 +7,7 @@ local Tuning = require(Shared.Tuning)
 local Types = require(Shared.Types)
 local MathUtil = require(script.Parent.Parent.MathUtil)
 local Punch = require(script.Parent.Parent.Punch)
+local Blast = require(script.Parent.Parent.Blast)
 
 local Glide = { Punch = "Air" }
 
@@ -45,6 +46,7 @@ function Glide.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 	local targetSpeed = T.ForwardSpeed
 		* (1 + (T.PitchUpSpeedFactor - 1) * pitchUp)
 		* Punch.slow(ctx, Tuning.Punch.ChargeGlideMult)
+		* Blast.slow(ctx, Tuning.Blast.ChargeGlideMult)
 	local speed = math.max(0, MathUtil.flat(ctx.Velocity, up):Dot(ctx.Heading))
 	-- Speed only grows on its own: below the target it accelerates, above it it is kept unless the player
 	-- pitches up to brake.
@@ -60,7 +62,10 @@ function Glide.update(ctx: Types.Ctx, dt: number): (Types.MovementState?, any)
 		sink *= E.StrainSinkMultiplier
 	end
 	vy -= Tuning.Gravity.Glide * dt
-	if vy < -sink then
+	-- The glide only levels out when asked (review note): pitching up, or looking above the horizon. Otherwise
+	-- gravity keeps building the fall and a dive only builds it faster.
+	local levelling = pitch > 0 or ctx.LookDirection:Dot(up) > T.LevelLookUp
+	if levelling and vy < -sink then
 		-- Levelling out of a fast fall turns the fall speed you arrived with into forward speed instead of
 		-- losing it (gravity's steady pull in a settled glide doesn't count, or the glide would speed up forever).
 		local levelled = MathUtil.moveToward(vy, -sink, T.SinkRecovery * dt)

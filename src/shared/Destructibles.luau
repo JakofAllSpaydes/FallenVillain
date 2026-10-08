@@ -34,6 +34,9 @@ Destructibles.Catalog = {
 	RadioMast = { Health = 8, Chunks = 4, Value = 200, Families = { "metal" } },
 	-- Landmarks (milestone 5 review: bigger silhouettes with layers to smash through).
 	Pyramid = { Health = 14, Chunks = 5, Value = 450, Families = { "stone" } },
+	Obelisk = { Health = 10, Chunks = 4, Value = 350, Families = { "stone" } },
+	Arch = { Health = 12, Chunks = 3, Value = 400, Families = { "stone" } },
+	Monolith = { Health = 18, Chunks = 3, Value = 700, Families = { "stone" } },
 	Skyscraper = { Health = 20, Chunks = 9, Value = 900, Families = { "stone", "glass" } },
 	Silo = { Health = 5, Chunks = 2, Value = 90, Families = { "metal" } },
 	Windmill = { Health = 6, Chunks = 6, Value = 150, Families = { "wood" } },
